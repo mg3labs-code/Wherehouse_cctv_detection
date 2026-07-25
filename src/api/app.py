@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +24,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    # Dev UI on :5173 + prod same-origin; allow stream/img from Vite
+    # Frontend on Railway + local Vite call this API cross-origin
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
@@ -81,11 +82,18 @@ def get_violations(
     return {"items": store.list_events(limit=limit, worksite=ws, event_type=event_type)}
 
 
-@app.get("/api/videos")
-def list_videos():
-    video_dir = os.path.join(Config.DATA_DIR, "videos")
-    os.makedirs(video_dir, exist_ok=True)
-    files = []
+_VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov"}
+
+
+def _video_dir() -> str:
+    path = os.path.join(Config.DATA_DIR, "videos")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _list_video_items() -> list[dict]:
+    video_dir = _video_dir()
+    files: list[str] = []
     for ext in ("*.mp4", "*.MP4", "*.avi", "*.mkv", "*.mov"):
         files.extend(glob.glob(os.path.join(video_dir, ext)))
     files = sorted(set(files))
@@ -97,13 +105,54 @@ def list_videos():
             "path": os.path.relpath(path, Config.PROJECT_ROOT).replace("\\", "/"),
             "size_mb": round(os.path.getsize(path) / (1024 * 1024), 1),
         })
-    return {"items": items}
+    return items
+
+
+@app.get("/api/videos")
+def list_videos():
+    return {"items": _list_video_items()}
+
+
+@app.post("/api/videos/upload")
+async def upload_video(file: UploadFile = File(...)):
+    """Save a CCTV clip into data/videos so Live Monitor can select it."""
+    raw_name = os.path.basename(file.filename or "")
+    if not raw_name:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    ext = os.path.splitext(raw_name)[1].lower()
+    if ext not in _VIDEO_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported type {ext or '(none)'}. Use: {', '.join(sorted(_VIDEO_EXTS))}",
+        )
+    safe = re.sub(r"[^\w.\- ]+", "_", raw_name).strip(" ._") or f"upload{ext}"
+    if not safe.lower().endswith(ext):
+        safe += ext
+    dest = os.path.join(_video_dir(), safe)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    # Soft limit ~500 MB — Railway disks are finite
+    if len(data) > 500 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 500 MB)")
+    with open(dest, "wb") as f:
+        f.write(data)
+    rel = os.path.relpath(dest, Config.PROJECT_ROOT).replace("\\", "/")
+    return {
+        "ok": True,
+        "item": {
+            "id": 0,
+            "name": os.path.basename(dest),
+            "path": rel,
+            "size_mb": round(len(data) / (1024 * 1024), 1),
+        },
+        "items": _list_video_items(),
+    }
 
 
 @app.get("/api/live/status")
 def live_status():
     return live_service.status()
-
 
 @app.post("/api/live/start")
 def live_start(body: StartLiveBody):
