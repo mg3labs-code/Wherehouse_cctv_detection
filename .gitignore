@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Model weights (download locally — do not push)
+*.pt
+*.pth
+*.onnx
+*.engine
+weights/
+models/*.pt
+
+# Videos (keep local)
+*.mp4
+*.avi
+*.mkv
+*.mov
+data/videos/*
+!data/videos/README.md
+
+# Runtime / generated outputs
+runs/
+outputs/logs/*
+!outputs/logs/.gitkeep
+outputs/reports/*
+!outputs/reports/.gitkeep
+outputs/videos/*
+!outputs/videos/.gitkeep
+outputs/debug/
+outputs/gls_safety.db
+*.log
+*.cache
+
+# Local debug / probe images & scratch scripts
+_*.jpg
+_*.png
+_*.py
+_*.json
+_scene_probe/
+'''*
+=
+2
+cv2
+
+# Local dataset images (keep labels + .gitkeep; frames stay on disk only)
+data/dataset/labels/*.cache
+data/dataset/images/train/**
+!data/dataset/images/train/.gitkeep
+data/dataset/images/test/**
+!data/dataset/images/test/.gitkeep
+data/dataset/images/val/**
+!data/dataset/images/val/.gitkeep
+data/dataset/images/train/frame_*.jpg
+data/dataset/images/test/*.webp
+data/dataset/images/test/*.png

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  gls-safety:
+    build: .
+    image: gls-warehouse-safety:latest
+    container_name: gls-safety-monitor
+    
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./models:/app/models
+    
+    ports:
+      - "8000:8000"
+    
+    restart: unless-stopped
+    
+    command: >
+      python -m src.main monitor
+      --source rtsp://camera:554/stream
+      --save-video

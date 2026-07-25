@@ -1,0 +1,559 @@
+# """Real-Time Compliance Monitoring Module"""
+# import cv2
+# import numpy as np
+# import json
+# from datetime import datetime
+# from .config import Config
+# from .utils import calculate_distance, get_bbox_center, ensure_directories
+
+# class ComplianceMonitor:
+#     """Warehouse Safety Compliance Monitor"""
+    
+#     def __init__(self, model_path):
+#         """Initialize monitor with lazy YOLO import"""
+#         # Step 1: Ensure directories exist FIRST
+#         ensure_directories()
+        
+#         # Step 2: Import YOLO ONLY when initializing (lazy import)
+#         from ultralytics import YOLO
+        
+#         # Step 3: Load model
+#         try:
+#             self.model = YOLO(model_path)
+#             print(f"✅ Model loaded: {model_path}")
+#         except Exception as e:
+#             print(f"❌ ERROR: Failed to load model: {e}")
+#             raise
+        
+#         # Step 4: Initialize properties
+#         self.config = Config
+#         self.violations = []
+#         self.tracked_objects = {}
+        
+#         # Step 5: Setup logging
+#         self.logger = self._setup_logging()
+    
+#     def _setup_logging(self):
+#         """Setup logging with proper directory handling"""
+#         import logging
+#         import os
+        
+#         # Ensure log directory exists
+#         os.makedirs(self.config.LOG_DIR, exist_ok=True)
+        
+#         log_file = f"{self.config.LOG_DIR}/gls_violations.log"
+        
+#         try:
+#             logging.basicConfig(
+#                 filename=log_file,
+#                 level=logging.INFO,
+#                 format='%(asctime)s - %(levelname)s - %(message)s'
+#             )
+#             logger = logging.getLogger(__name__)
+#             logger.info("=" * 50)
+#             logger.info("Monitoring session started")
+#             logger.info("=" * 50)
+#             return logger
+#         except Exception as e:
+#             print(f"⚠️  WARNING: Could not setup logging: {e}")
+#             return None
+    
+#     def process_frame(self, frame):
+#         """Process single frame and detect violations"""
+#         try:
+#             # Validate frame
+#             if frame is None or frame.size == 0:
+#                 print("❌ ERROR: Invalid frame")
+#                 return frame, []
+            
+#             # Run inference
+#             results = self.model(frame, verbose=False)
+#             detections = results[0]
+#             violations = []
+            
+#             # Extract detections
+#             people = []
+#             forklifts = []
+#             conveyors = []
+#             harnesses = []
+#             oil_trays = []
+#             wheel_stoppers = []
+            
+#             for det in detections.boxes:
+#                 cls = int(det.cls[0])
+#                 conf = float(det.conf[0])
+#                 bbox = det.xyxy[0].cpu().numpy()
+                
+#                 # Filter by confidence
+#                 if conf < 0.6:
+#                     continue
+                
+#                 # Classify detections
+#                 if cls == 0:  # Person
+#                     people.append({'bbox': bbox, 'conf': conf})
+#                 elif cls == 1:  # Forklift
+#                     forklifts.append({'bbox': bbox, 'conf': conf})
+#                 elif cls == 2:  # Safety Harness
+#                     harnesses.append({'bbox': bbox, 'conf': conf})
+#                 elif cls == 3:  # Oil Tray
+#                     oil_trays.append({'bbox': bbox, 'conf': conf})
+#                 elif cls == 4:  # Wheel Stopper
+#                     wheel_stoppers.append({'bbox': bbox, 'conf': conf})
+#                 elif cls == 5:  # Conveyor
+#                     conveyors.append({'bbox': bbox, 'conf': conf})
+            
+#             # Run all compliance checks
+#             violations.extend(self._check_conveyor_safety(frame, people, conveyors))
+#             violations.extend(self._check_harness_compliance(frame, people, harnesses))
+#             violations.extend(self._check_oil_tray_compliance(frame, forklifts, oil_trays))
+#             violations.extend(self._check_wheel_stopper_compliance(frame, forklifts, wheel_stoppers))
+#             violations.extend(self._check_forklift_safety(frame, forklifts))
+            
+#             # Draw on frame
+#             result_frame = self._draw_detections(frame, people, forklifts, conveyors, violations)
+            
+#             # Store violations
+#             self.violations.extend(violations)
+            
+#             return result_frame, violations
+            
+#         except Exception as e:
+#             print(f"❌ ERROR in process_frame: {e}")
+#             return frame, []
+    
+#     def _check_conveyor_safety(self, frame, people, conveyors):
+#         """Check 1: Man Movement Near Conveyor"""
+#         violations = []
+#         if not people or not conveyors:
+#             return violations
+        
+#         for person in people:
+#             for conveyor in conveyors:
+#                 dist = calculate_distance(
+#                     get_bbox_center(person['bbox']),
+#                     get_bbox_center(conveyor['bbox'])
+#                 )
+#                 if dist < self.config.CONVEYOR_DANGER_DISTANCE:
+#                     violation = {
+#                         'type': 'MAN_NEAR_CONVEYOR',
+#                         'distance': float(dist),
+#                         'timestamp': datetime.now().isoformat()
+#                     }
+#                     violations.append(violation)
+#                     if self.logger:
+#                         self.logger.warning(f"VIOLATION: Person near conveyor (distance: {dist:.1f}px)")
+        
+#         return violations
+    
+#     def _check_harness_compliance(self, frame, people, harnesses):
+#         """Check 2: Safety Harness Compliance"""
+#         violations = []
+        
+#         # If persons detected without harness
+#         if len(people) > len(harnesses):
+#             violation = {
+#                 'type': 'NO_HARNESS',
+#                 'count': len(people) - len(harnesses),
+#                 'timestamp': datetime.now().isoformat()
+#             }
+#             violations.append(violation)
+#             if self.logger:
+#                 self.logger.warning(f"VIOLATION: {len(people) - len(harnesses)} person(s) without harness")
+        
+#         return violations
+    
+#     def _check_oil_tray_compliance(self, frame, forklifts, oil_trays):
+#         """Check 3: Oil Tray Presence under forklifts"""
+#         violations = []
+        
+#         # If forklifts detected without oil trays
+#         if len(forklifts) > len(oil_trays):
+#             violation = {
+#                 'type': 'NO_OIL_TRAY',
+#                 'count': len(forklifts) - len(oil_trays),
+#                 'timestamp': datetime.now().isoformat()
+#             }
+#             violations.append(violation)
+#             if self.logger:
+#                 self.logger.warning(f"VIOLATION: {len(forklifts) - len(oil_trays)} forklift(s) without oil tray")
+        
+#         return violations
+    
+#     def _check_wheel_stopper_compliance(self, frame, forklifts, wheel_stoppers):
+#         """Check 4: Wheel Stopper Presence"""
+#         violations = []
+        
+#         # If forklifts detected without wheel stoppers
+#         if len(forklifts) > len(wheel_stoppers):
+#             violation = {
+#                 'type': 'NO_WHEEL_STOPPER',
+#                 'count': len(forklifts) - len(wheel_stoppers),
+#                 'timestamp': datetime.now().isoformat()
+#             }
+#             violations.append(violation)
+#             if self.logger:
+#                 self.logger.warning(f"VIOLATION: {len(forklifts) - len(wheel_stoppers)} forklift(s) without wheel stopper")
+        
+#         return violations
+    
+#     def _check_forklift_safety(self, frame, forklifts):
+#         """Check 5: Forklift Speed Monitoring"""
+#         violations = []
+#         # TODO: Implement speed tracking with frame-to-frame analysis
+#         # This requires tracking objects between frames
+#         return violations
+    
+#     def _draw_detections(self, frame, people, forklifts, conveyors, violations):
+#         """Draw detections and violations on frame"""
+#         result = frame.copy()
+        
+#         # Draw people (Cyan)
+#         for person in people:
+#             bbox = person['bbox']
+#             x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+#             cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['INFO'], 2)
+#             cv2.putText(result, f"Person {person['conf']:.2f}", (x1, y1-5),
+#                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['INFO'], 2)
+        
+#         # Draw forklifts (Orange)
+#         for forklift in forklifts:
+#             bbox = forklift['bbox']
+#             x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+#             cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['WARN'], 2)
+#             cv2.putText(result, f"Forklift {forklift['conf']:.2f}", (x1, y1-5),
+#                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['WARN'], 2)
+        
+#         # Draw conveyors (Green)
+#         for conveyor in conveyors:
+#             bbox = conveyor['bbox']
+#             x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+#             cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['PASS'], 2)
+#             cv2.putText(result, f"Conveyor", (x1, y1-5),
+#                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['PASS'], 2)
+        
+#         # Draw violations (Red) at top left
+#         if violations:
+#             color = self.config.COLORS['FAIL']
+#             y_offset = 30
+#             for v in violations:
+#                 text = f"⚠️  VIOLATION: {v['type']}"
+#                 cv2.putText(result, text, (10, y_offset), 
+#                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+#                 y_offset += 25
+        
+#         return result
+    
+#     def save_report(self):
+#         """Save violations report to JSON"""
+#         try:
+#             import os
+            
+#             # Ensure report directory exists
+#             os.makedirs(self.config.REPORT_DIR, exist_ok=True)
+            
+#             report = {
+#                 'timestamp': datetime.now().isoformat(),
+#                 'total_violations': len(self.violations),
+#                 'violation_types': self._count_violation_types(),
+#                 'violations': self.violations
+#             }
+            
+#             report_file = f"{self.config.REPORT_DIR}/gls_report.json"
+#             with open(report_file, 'w') as f:
+#                 json.dump(report, f, indent=2)
+            
+#             print(f"✅ Report saved: {report_file}")
+            
+#             if self.logger:
+#                 self.logger.info(f"Report saved with {len(self.violations)} violations")
+            
+#         except Exception as e:
+#             print(f"❌ ERROR saving report: {e}")
+    
+#     def _count_violation_types(self):
+#         """Count violations by type"""
+#         types = {}
+#         for v in self.violations:
+#             vtype = v.get('type', 'UNKNOWN')
+#             types[vtype] = types.get(vtype, 0) + 1
+#         return types
+
+"""Real-Time Compliance Monitoring Module"""
+import cv2
+import numpy as np
+import json
+from datetime import datetime
+from .config import Config
+from .utils import calculate_distance, get_bbox_center, ensure_directories
+
+class ComplianceMonitor:
+    """Warehouse Safety Compliance Monitor"""
+    
+    def __init__(self, model_path):
+        """Initialize monitor with lazy YOLO import"""
+        # Step 1: Ensure directories exist FIRST
+        ensure_directories()
+        
+        # Step 2: Import YOLO ONLY when initializing (lazy import)
+        from ultralytics import YOLO
+        
+        # Step 3: Load model
+        try:
+            self.model = YOLO(model_path)
+            print(f"✅ Model loaded: {model_path}")
+        except Exception as e:
+            print(f"❌ ERROR: Failed to load model: {e}")
+            raise
+        
+        # Step 4: Initialize properties
+        self.config = Config
+        self.violations = []
+        self.tracked_objects = {}
+        
+        # Step 5: Setup logging
+        self.logger = self._setup_logging()
+    
+    def _setup_logging(self):
+        """Setup logging with proper directory handling"""
+        import logging
+        import os
+        
+        # Ensure log directory exists
+        os.makedirs(self.config.LOG_DIR, exist_ok=True)
+        
+        log_file = f"{self.config.LOG_DIR}/gls_violations.log"
+        
+        try:
+            logging.basicConfig(
+                filename=log_file,
+                level=logging.INFO,
+                format='%(asctime)s - %(levelname)s - %(message)s'
+            )
+            logger = logging.getLogger(__name__)
+            logger.info("=" * 50)
+            logger.info("Monitoring session started")
+            logger.info("=" * 50)
+            return logger
+        except Exception as e:
+            print(f"⚠️  WARNING: Could not setup logging: {e}")
+            return None
+    
+    def process_frame(self, frame):
+        """Process single frame and detect violations"""
+        try:
+            # Validate frame
+            if frame is None or frame.size == 0:
+                print("❌ ERROR: Invalid frame")
+                return frame, []
+            
+            # Run inference
+            results = self.model(frame, verbose=False)
+            detections = results[0]
+            violations = []
+            
+            # Extract detections
+            people = []
+            forklifts = []
+            conveyors = []
+            harnesses = []
+            oil_trays = []
+            wheel_stoppers = []
+            
+            for det in detections.boxes:
+                cls = int(det.cls[0])
+                conf = float(det.conf[0])
+                bbox = det.xyxy[0].cpu().numpy()
+                
+                # Filter by confidence
+                if conf < 0.6:
+                    continue
+                
+                # Classify detections
+                if cls == 0:  # Person
+                    people.append({'bbox': bbox, 'conf': conf})
+                elif cls == 1:  # Forklift
+                    forklifts.append({'bbox': bbox, 'conf': conf})
+                elif cls == 2:  # Safety Harness
+                    harnesses.append({'bbox': bbox, 'conf': conf})
+                elif cls == 3:  # Oil Tray
+                    oil_trays.append({'bbox': bbox, 'conf': conf})
+                elif cls == 4:  # Wheel Stopper
+                    wheel_stoppers.append({'bbox': bbox, 'conf': conf})
+                elif cls == 5:  # Conveyor
+                    conveyors.append({'bbox': bbox, 'conf': conf})
+            
+            # Run all compliance checks
+            violations.extend(self._check_conveyor_safety(frame, people, conveyors))
+            violations.extend(self._check_harness_compliance(frame, people, harnesses))
+            violations.extend(self._check_oil_tray_compliance(frame, forklifts, oil_trays))
+            violations.extend(self._check_wheel_stopper_compliance(frame, forklifts, wheel_stoppers))
+            violations.extend(self._check_forklift_safety(frame, forklifts))
+            
+            # Draw on frame
+            result_frame = self._draw_detections(frame, people, forklifts, conveyors, violations)
+            
+            # Store violations
+            self.violations.extend(violations)
+            
+            return result_frame, violations
+            
+        except Exception as e:
+            print(f"❌ ERROR in process_frame: {e}")
+            return frame, []
+    
+    def _check_conveyor_safety(self, frame, people, conveyors):
+        """Check 1: Man Movement Near Conveyor"""
+        violations = []
+        if not people or not conveyors:
+            return violations
+        
+        for person in people:
+            for conveyor in conveyors:
+                dist = calculate_distance(
+                    get_bbox_center(person['bbox']),
+                    get_bbox_center(conveyor['bbox'])
+                )
+                if dist < self.config.CONVEYOR_DANGER_DISTANCE:
+                    violation = {
+                        'type': 'MAN_NEAR_CONVEYOR',
+                        'distance': float(dist),
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    violations.append(violation)
+                    if self.logger:
+                        self.logger.warning(f"VIOLATION: Person near conveyor (distance: {dist:.1f}px)")
+        
+        return violations
+    
+    def _check_harness_compliance(self, frame, people, harnesses):
+        """Check 2: Safety Harness Compliance"""
+        violations = []
+        
+        # If persons detected without harness
+        if len(people) > len(harnesses):
+            violation = {
+                'type': 'NO_HARNESS',
+                'count': len(people) - len(harnesses),
+                'timestamp': datetime.now().isoformat()
+            }
+            violations.append(violation)
+            if self.logger:
+                self.logger.warning(f"VIOLATION: {len(people) - len(harnesses)} person(s) without harness")
+        
+        return violations
+    
+    def _check_oil_tray_compliance(self, frame, forklifts, oil_trays):
+        """Check 3: Oil Tray Presence under forklifts"""
+        violations = []
+        
+        # If forklifts detected without oil trays
+        if len(forklifts) > len(oil_trays):
+            violation = {
+                'type': 'NO_OIL_TRAY',
+                'count': len(forklifts) - len(oil_trays),
+                'timestamp': datetime.now().isoformat()
+            }
+            violations.append(violation)
+            if self.logger:
+                self.logger.warning(f"VIOLATION: {len(forklifts) - len(oil_trays)} forklift(s) without oil tray")
+        
+        return violations
+    
+    def _check_wheel_stopper_compliance(self, frame, forklifts, wheel_stoppers):
+        """Check 4: Wheel Stopper Presence"""
+        violations = []
+        
+        # If forklifts detected without wheel stoppers
+        if len(forklifts) > len(wheel_stoppers):
+            violation = {
+                'type': 'NO_WHEEL_STOPPER',
+                'count': len(forklifts) - len(wheel_stoppers),
+                'timestamp': datetime.now().isoformat()
+            }
+            violations.append(violation)
+            if self.logger:
+                self.logger.warning(f"VIOLATION: {len(forklifts) - len(wheel_stoppers)} forklift(s) without wheel stopper")
+        
+        return violations
+    
+    def _check_forklift_safety(self, frame, forklifts):
+        """Check 5: Forklift Speed Monitoring"""
+        violations = []
+        # TODO: Implement speed tracking with frame-to-frame analysis
+        # This requires tracking objects between frames
+        return violations
+    
+    def _draw_detections(self, frame, people, forklifts, conveyors, violations):
+        """Draw detections and violations on frame"""
+        result = frame.copy()
+        
+        # Draw people (Cyan)
+        for person in people:
+            bbox = person['bbox']
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['INFO'], 2)
+            cv2.putText(result, f"Person {person['conf']:.2f}", (x1, y1-5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['INFO'], 2)
+        
+        # Draw forklifts (Orange)
+        for forklift in forklifts:
+            bbox = forklift['bbox']
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['WARN'], 2)
+            cv2.putText(result, f"Forklift {forklift['conf']:.2f}", (x1, y1-5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['WARN'], 2)
+        
+        # Draw conveyors (Green)
+        for conveyor in conveyors:
+            bbox = conveyor['bbox']
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            cv2.rectangle(result, (x1, y1), (x2, y2), self.config.COLORS['PASS'], 2)
+            cv2.putText(result, f"Conveyor", (x1, y1-5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.config.COLORS['PASS'], 2)
+        
+        # Draw violations (Red) at top left
+        if violations:
+            color = self.config.COLORS['FAIL']
+            y_offset = 30
+            for v in violations:
+                text = f"⚠️  VIOLATION: {v['type']}"
+                cv2.putText(result, text, (10, y_offset), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                y_offset += 25
+        
+        return result
+    
+    def save_report(self):
+        """Save violations report to JSON"""
+        try:
+            import os
+            
+            # Ensure report directory exists
+            os.makedirs(self.config.REPORT_DIR, exist_ok=True)
+            
+            report = {
+                'timestamp': datetime.now().isoformat(),
+                'total_violations': len(self.violations),
+                'violation_types': self._count_violation_types(),
+                'violations': self.violations
+            }
+            
+            report_file = f"{self.config.REPORT_DIR}/gls_report.json"
+            with open(report_file, 'w') as f:
+                json.dump(report, f, indent=2)
+            
+            print(f"✅ Report saved: {report_file}")
+            
+            if self.logger:
+                self.logger.info(f"Report saved with {len(self.violations)} violations")
+            
+        except Exception as e:
+            print(f"❌ ERROR saving report: {e}")
+    
+    def _count_violation_types(self):
+        """Count violations by type"""
+        types = {}
+        for v in self.violations:
+            vtype = v.get('type', 'UNKNOWN')
+            types[vtype] = types.get(vtype, 0) + 1
+        return types

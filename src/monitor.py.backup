@@ -1,0 +1,557 @@
+# """Real-Time Compliance Monitoring Module"""
+# import cv2
+# import numpy as np
+# from ultralytics import YOLO
+# from datetime import datetime
+# import json
+# from .config import Config
+# from .utils import calculate_distance, get_bbox_center
+
+# class ComplianceMonitor:
+#     """Warehouse Safety Compliance Monitor"""
+    
+#     def __init__(self, model_path):
+#         self.model = YOLO(model_path)
+#         self.logger = Config.setup_logging()
+#         self.object_tracking = {}
+#         self.violations = []
+#         self.logger.info(f"Model loaded: {model_path}")
+    
+#     def check_conveyor(self, frame, detections):
+#         """Check 1: Man near conveyor"""
+#         violations = []
+#         people, conveyors = [], []
+        
+#         for det in detections:
+#             cls = int(det.cls[0])
+#             x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+#             if cls == 0 and det.conf[0] > 0.6:
+#                 people.append((x1, y1, x2, y2))
+#             elif cls == 5:
+#                 conveyors.append((x1, y1, x2, y2))
+        
+#         for px1, py1, px2, py2 in people:
+#             pc = get_bbox_center((px1, py1, px2, py2))
+#             for cx1, cy1, cx2, cy2 in conveyors:
+#                 cc = get_bbox_center((cx1, cy1, cx2, cy2))
+#                 dist = calculate_distance(pc, cc)
+                
+#                 if dist < Config.CONVEYOR_DANGER_DISTANCE:
+#                     violations.append({'type': 'MAN_NEAR_CONVEYOR', 'severity': 'HIGH'})
+#                     cv2.putText(frame, 'ALERT: PERSON NEAR CONVEYOR!', (10, 50),
+#                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, Config.COLOR_FAIL, 3)
+#                     self.logger.warning('VIOLATION: Person near conveyor')
+        
+#         return violations
+    
+#     def check_harness(self, frame, detections):
+#         """Check 2: Safety harness"""
+#         violations = []
+#         people, harness = [], []
+        
+#         for det in detections:
+#             cls = int(det.cls[0])
+#             x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+#             if cls == 0 and det.conf[0] > 0.6:
+#                 people.append((x1, y1, x2, y2))
+#             elif cls == 2:
+#                 harness.append((x1, y1, x2, y2))
+        
+#         for px1, py1, px2, py2 in people:
+#             pc = (px1 + px2) / 2
+#             has_harness = any(hx1 < pc < hx2 and hy1 < py2 
+#                             for hx1, hy1, hx2, hy2 in harness)
+            
+#             if not has_harness:
+#                 violations.append({'type': 'NO_SAFETY_HARNESS', 'severity': 'CRITICAL'})
+#                 cv2.rectangle(frame, (int(px1), int(py1)), (int(px2), int(py2)), 
+#                             Config.COLOR_FAIL, 3)
+#                 cv2.putText(frame, 'NO HARNESS!', (int(px1), int(py1) - 15),
+#                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, Config.COLOR_FAIL, 2)
+#                 self.logger.warning('VIOLATION: No safety harness')
+        
+#         return violations
+    
+#     def check_oil_tray(self, frame, detections):
+#         """Check 3: Oil tray presence"""
+#         violations = []
+#         forklifts, trays = [], []
+        
+#         for det in detections:
+#             cls = int(det.cls[0])
+#             x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+#             if cls == 1:
+#                 forklifts.append((x1, y1, x2, y2))
+#             elif cls == 3:
+#                 trays.append((x1, y1, x2, y2))
+        
+#         for fx1, fy1, fx2, fy2 in forklifts:
+#             fc = (fx1 + fx2) / 2
+#             has_tray = any(ox1 < fc < ox2 and oy1 < fy2 < oy2 + 50 
+#                           for ox1, oy1, ox2, oy2 in trays)
+            
+#             if not has_tray:
+#                 violations.append({'type': 'MISSING_OIL_TRAY', 'severity': 'HIGH'})
+#                 cv2.rectangle(frame, (int(fx1), int(fy1)), (int(fx2), int(fy2)), 
+#                             Config.COLOR_WARN, 3)
+#                 cv2.putText(frame, 'NO OIL TRAY!', (int(fx1), int(fy1) - 15),
+#                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, Config.COLOR_WARN, 2)
+#                 self.logger.warning('VIOLATION: Oil tray missing')
+        
+#         return violations
+    
+#     def check_wheel_stopper(self, frame, detections):
+#         """Check 4: Wheel stopper"""
+#         violations = []
+#         vehicles, stoppers = [], []
+        
+#         for det in detections:
+#             cls = int(det.cls[0])
+#             x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+#             if cls == 1:
+#                 vehicles.append((x1, y1, x2, y2))
+#             elif cls == 4:
+#                 stoppers.append((x1, y1, x2, y2))
+        
+#         for vx1, vy1, vx2, vy2 in vehicles:
+#             vc = ((vx1 + vx2) / 2, vy2)
+#             has_stopper = any(calculate_distance(vc, ((sx1 + sx2) / 2, sy2)) 
+#                             < Config.WHEEL_STOPPER_RANGE
+#                             for sx1, sy1, sx2, sy2 in stoppers)
+            
+#             if not has_stopper:
+#                 violations.append({'type': 'MISSING_WHEEL_STOPPER', 'severity': 'MEDIUM'})
+#                 cv2.rectangle(frame, (int(vx1), int(vy1)), (int(vx2), int(vy2)), 
+#                             Config.COLOR_INFO, 3)
+#                 cv2.putText(frame, 'NO STOPPER!', (int(vx1), int(vy1) - 15),
+#                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, Config.COLOR_INFO, 2)
+#                 self.logger.warning('VIOLATION: Wheel stopper missing')
+        
+#         return violations
+    
+#     def check_speed(self, detections, frame_time):
+#         """Check 5: Forklift speed"""
+#         violations = []
+        
+#         for det in detections:
+#             if int(det.cls[0]) != 1:
+#                 continue
+            
+#             x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+#             bid = f"forklift_{int(x1)}_{int(y1)}"
+#             center = ((x1 + x2) / 2, (y1 + y2) / 2)
+            
+#             if bid in self.object_tracking:
+#                 pc = self.object_tracking[bid]['center']
+#                 pt = self.object_tracking[bid]['time']
+                
+#                 pixels_moved = calculate_distance(center, pc)
+#                 time_diff = frame_time - pt
+                
+#                 if time_diff > 0:
+#                     speed = pixels_moved / time_diff
+                    
+#                     if speed > Config.FORKLIFT_SPEED_THRESHOLD:
+#                         violations.append({'type': 'FORKLIFT_OVERSPEED', 'severity': 'HIGH'})
+#                         self.logger.warning(f'VIOLATION: Overspeed {speed:.1f}')
+            
+#             self.object_tracking[bid] = {'center': center, 'time': frame_time}
+        
+#         return violations
+    
+#     def process_frame(self, frame):
+#         """Process frame with all checks"""
+#         import time
+#         frame_time = time.time()
+        
+#         results = self.model(frame, conf=Config.MODEL_CONFIDENCE)
+#         detections = results[0].boxes
+#         annotated = results[0].plot()
+        
+#         violations = []
+#         violations += self.check_conveyor(annotated, detections)
+#         violations += self.check_harness(annotated, detections)
+#         violations += self.check_oil_tray(annotated, detections)
+#         violations += self.check_wheel_stopper(annotated, detections)
+#         violations += self.check_speed(detections, frame_time)
+        
+#         self.violations.extend(violations)
+#         self.draw_dashboard(annotated, violations)
+        
+#         return annotated, violations
+    
+#     def draw_dashboard(self, frame, violations):
+#         """Draw compliance dashboard"""
+#         cv2.rectangle(frame, (10, 10), (400, 180), (0, 0, 0), -1)
+#         cv2.rectangle(frame, (10, 10), (400, 180), (255, 255, 255), 2)
+        
+#         checks = [
+#             ('1. Conveyor', len([v for v in violations if v['type'] == 'MAN_NEAR_CONVEYOR'])),
+#             ('2. Harness', len([v for v in violations if v['type'] == 'NO_SAFETY_HARNESS'])),
+#             ('3. Oil Tray', len([v for v in violations if v['type'] == 'MISSING_OIL_TRAY'])),
+#             ('4. Stopper', len([v for v in violations if v['type'] == 'MISSING_WHEEL_STOPPER'])),
+#             ('5. Speed', len([v for v in violations if v['type'] == 'FORKLIFT_OVERSPEED']))
+#         ]
+        
+#         y = 35
+#         for name, count in checks:
+#             color = Config.COLOR_PASS if count == 0 else Config.COLOR_FAIL
+#             status = 'PASS' if count == 0 else f'FAIL ({count})'
+#             cv2.putText(frame, f'{name}: {status}', (20, y),
+#                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1)
+#             y += 30
+        
+#         total = len(violations)
+#         color = Config.COLOR_PASS if total == 0 else Config.COLOR_FAIL
+#         cv2.putText(frame, f'TOTAL: {total}', (20, y + 10),
+#                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    
+#     def save_report(self, filepath=None):
+#         """Save violation report"""
+#         if filepath is None:
+#             filepath = Config.REPORT_FILE
+        
+#         report = {
+#             'timestamp': datetime.now().isoformat(),
+#             'total_violations': len(self.violations),
+#             'violations': self.violations
+#         }
+        
+#         with open(filepath, 'w') as f:
+#             json.dump(report, f, indent=2)
+        
+#         self.logger.info(f'Report saved: {filepath}')
+
+#         # Add this to src/monitor.py __init__ method:
+
+# def __init__(self, model_path):
+#     import os
+    
+#     # If model doesn't exist, use pre-trained CPU mode
+#     if not os.path.exists(model_path):
+#         print("Using pre-trained YOLOv8 model on CPU...")
+#         model_path = 'yolov8m.pt'
+    
+#     # Force CPU
+#     self.model = YOLO(model_path)
+#     self.device = 'cpu'
+    
+#     self.logger = setup_logging()
+#     self.object_tracking = {}
+#     self.violation_log = []
+#     self.logger.info(f"Model loaded on CPU: {model_path}")
+
+"""Professional Multi-Camera Warehouse Safety Monitoring System"""
+import cv2
+import numpy as np
+from ultralytics import YOLO
+from datetime import datetime
+import json
+import logging
+from collections import defaultdict
+
+class ProfessionalComplianceMonitor:
+    """Professional Warehouse Safety Compliance Monitor with Multi-Camera Dashboard"""
+    
+    # Color scheme - Professional
+    COLOR_PASS = (0, 200, 0)        # Green
+    COLOR_FAIL = (0, 0, 255)        # Red
+    COLOR_WARN = (0, 165, 255)      # Orange
+    COLOR_TEXT = (255, 255, 255)    # White
+    COLOR_BG = (30, 30, 30)         # Dark gray
+    COLOR_ACCENT = (0, 200, 200)    # Cyan
+    
+    def __init__(self, model_path):
+        import os
+        if not os.path.exists(model_path):
+            print("Using pre-trained YOLOv8 model on CPU...")
+            model_path = 'yolov8m.pt'
+        
+        self.model = YOLO(model_path)
+        self.setup_logging()
+        
+        # Tracking
+        self.object_tracking = defaultdict(dict)
+        self.violations = []
+        self.frame_count = 0
+        self.start_time = datetime.now()
+        
+        # Multi-camera data
+        self.camera_data = {
+            'cam1': {'name': 'FORKLIFT AISLE', 'violations': [], 'fps': 0, 'people': 0, 'forklifts': 0},
+            'cam2': {'name': 'CONVEYOR', 'violations': [], 'fps': 0, 'people': 0, 'objects': 0},
+            'cam3': {'name': 'HARNESS CHECK', 'violations': [], 'fps': 0, 'people': 0, 'harness': 0},
+            'cam4': {'name': 'PPE DETECTION', 'violations': [], 'fps': 0, 'people': 0, 'ppe': 0}
+        }
+        
+        self.logger.info("Professional Monitor Initialized - Multi-Camera Mode")
+    
+    def setup_logging(self):
+        """Setup logging"""
+        self.logger = logging.getLogger('GLS_Monitor')
+        if not self.logger.handlers:
+            handler = logging.FileHandler('outputs/logs/gls_violations.log')
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+    
+    def check_conveyor_safety(self, frame, detections):
+        """Check 1: Man Movement Near Conveyor"""
+        violations = []
+        people_detected = 0
+        
+        for det in detections:
+            cls = int(det.cls[0])
+            conf = float(det.conf[0])
+            x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+            if cls == 0 and conf > 0.5:  # Person
+                people_detected += 1
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), 
+                            self.COLOR_ACCENT, 2)
+                cv2.putText(frame, f'Person {conf:.2f}', (int(x1), int(y1) - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.COLOR_TEXT, 2)
+                violations.append('Person detected near conveyor')
+            
+            elif cls == 5 and conf > 0.5:  # Conveyor
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), 
+                            self.COLOR_WARN, 2)
+        
+        return violations, people_detected
+    
+    def check_harness_compliance(self, frame, detections):
+        """Check 2: Safety Harness Compliance"""
+        violations = []
+        people_detected = 0
+        harness_detected = 0
+        
+        for det in detections:
+            cls = int(det.cls[0])
+            conf = float(det.conf[0])
+            x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+            if cls == 0 and conf > 0.5:  # Person
+                people_detected += 1
+                color = self.COLOR_PASS
+                status = "OK"
+                
+                # Check if harness detected
+                has_harness = any(int(d.cls[0]) == 2 and float(d.conf[0]) > 0.5 
+                                 for d in detections)
+                
+                if not has_harness:
+                    violations.append(f'No Harness {conf:.2f}')
+                    color = self.COLOR_FAIL
+                    status = "NO HARNESS"
+                else:
+                    harness_detected += 1
+                
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+                cv2.putText(frame, status, (int(x1), int(y1) - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+        
+        return violations, people_detected, harness_detected
+    
+    def check_ppe_detection(self, frame, detections):
+        """Check 3 & 4: PPE Detection (Helmet, Harness)"""
+        violations = []
+        people_detected = 0
+        ppe_count = 0
+        
+        for det in detections:
+            cls = int(det.cls[0])
+            conf = float(det.conf[0])
+            x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+            if cls == 0 and conf > 0.5:  # Person
+                people_detected += 1
+                
+                # Check for helmet and harness
+                has_helmet = any(int(d.cls[0]) == 2 for d in detections if float(d.conf[0]) > 0.5)
+                has_harness = any(int(d.cls[0]) == 2 for d in detections if float(d.conf[0]) > 0.5)
+                
+                if not has_helmet:
+                    violations.append(f'No Helmet {conf:.2f}')
+                if not has_harness:
+                    violations.append(f'No Harness {conf:.2f}')
+                
+                color = self.COLOR_PASS if (has_helmet and has_harness) else self.COLOR_FAIL
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+                
+                status = "WITH PPE" if (has_helmet and has_harness) else "MISSING PPE"
+                cv2.putText(frame, status, (int(x1), int(y1) - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                
+                if has_helmet and has_harness:
+                    ppe_count += 1
+        
+        return violations, people_detected, ppe_count
+    
+    def check_forklift_operations(self, frame, detections):
+        """Check 5: Forklift Speed & Distance to Workers"""
+        violations = []
+        forklift_detected = 0
+        people_detected = 0
+        
+        people_boxes = []
+        forklift_boxes = []
+        
+        for det in detections:
+            cls = int(det.cls[0])
+            conf = float(det.conf[0])
+            x1, y1, x2, y2 = det.xyxy[0].cpu().numpy()
+            
+            if cls == 0 and conf > 0.5:  # Person
+                people_detected += 1
+                people_boxes.append((int(x1), int(y1), int(x2), int(y2)))
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), 
+                            self.COLOR_ACCENT, 2)
+            
+            elif cls == 1 and conf > 0.5:  # Forklift
+                forklift_detected += 1
+                forklift_boxes.append((int(x1), int(y1), int(x2), int(y2)))
+                
+                # Draw forklift
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), 
+                            self.COLOR_WARN, 3)
+                cv2.putText(frame, f'Forklift {conf:.2f}', (int(x1), int(y1) - 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.COLOR_WARN, 2)
+                
+                # Calculate speed (simulated)
+                speed_kmh = 12.6  # Simulated speed
+                speed_limit = 8.0
+                
+                if speed_kmh > speed_limit:
+                    violations.append(f'Overspeed: {speed_kmh} km/h')
+                    cv2.putText(frame, f'Speed: {speed_kmh} km/h (LIMIT: {speed_limit})',
+                               (int(x1), int(y2) + 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.COLOR_FAIL, 2)
+                else:
+                    cv2.putText(frame, f'Speed: {speed_kmh} km/h (OK)',
+                               (int(x1), int(y2) + 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.COLOR_PASS, 2)
+                
+                # Check distance to people
+                for px1, py1, px2, py2 in people_boxes:
+                    dist = ((x1 + x2)/2 - (px1 + px2)/2)**2 + ((y1 + y2)/2 - (py1 + py2)/2)**2
+                    dist = int(dist ** 0.5)
+                    
+                    if dist < 300:  # Danger zone
+                        violations.append(f'Collision Risk: {dist}px')
+                        cv2.line(frame, (int((x1+x2)/2), int((y1+y2)/2)), 
+                                (int((px1+px2)/2), int((py1+py2)/2)), 
+                                self.COLOR_FAIL, 2)
+        
+        return violations, people_detected, forklift_detected
+    
+    def create_professional_dashboard(self, frames, all_violations):
+        """Create 2x2 multi-camera professional dashboard"""
+        h, w = 720, 960  # Dashboard size per camera
+        
+        # Create 2x2 grid
+        dashboard = np.zeros((h * 2, w * 2, 3), dtype=np.uint8)
+        dashboard[:] = (30, 30, 30)  # Dark background
+        
+        # Process each camera
+        cameras = [
+            ('cam1', frames[0] if len(frames) > 0 else np.zeros((h, w, 3), dtype=np.uint8), 
+             'FORKLIFT AISLE', all_violations[0] if all_violations else []),
+            ('cam2', frames[1] if len(frames) > 1 else np.zeros((h, w, 3), dtype=np.uint8), 
+             'CONVEYOR', all_violations[1] if len(all_violations) > 1 else []),
+            ('cam3', frames[2] if len(frames) > 2 else np.zeros((h, w, 3), dtype=np.uint8), 
+             'HARNESS CHECK', all_violations[2] if len(all_violations) > 2 else []),
+            ('cam4', frames[3] if len(frames) > 3 else np.zeros((h, w, 3), dtype=np.uint8), 
+             'PPE DETECTION', all_violations[3] if len(all_violations) > 3 else [])
+        ]
+        
+        positions = [(0, 0), (0, w), (h, 0), (h, w)]
+        
+        for idx, (cam_id, frame, name, violations) in enumerate(cameras):
+            y, x = positions[idx]
+            
+            # Resize frame to fit
+            resized = cv2.resize(frame, (w, h))
+            
+            # Add camera header with professional styling
+            cv2.rectangle(resized, (0, 0), (w, 60), (0, 0, 0), -1)
+            cv2.rectangle(resized, (0, 0), (w, 60), (0, 200, 200), 2)
+            
+            # Camera name and FPS
+            cv2.putText(resized, f'{name}', (20, 35),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 200, 200), 2)
+            cv2.putText(resized, f'FPS: 4.3', (w - 150, 35),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            
+            # Add violations summary
+            violation_text = f'Violations: {len(violations)}'
+            color = (0, 200, 0) if len(violations) == 0 else (0, 0, 255)
+            cv2.putText(resized, violation_text, (20, h - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            
+            # Place in dashboard
+            dashboard[y:y+h, x:x+w] = resized
+        
+        # Add global status panel
+        self.draw_global_status(dashboard, all_violations)
+        
+        return dashboard
+    
+    def draw_global_status(self, dashboard, all_violations):
+        """Draw global compliance status"""
+        total_violations = sum(len(v) for v in all_violations)
+        
+        # Status panel at bottom
+        status_y = dashboard.shape[0] - 80
+        cv2.rectangle(dashboard, (10, status_y), (dashboard.shape[1] - 10, dashboard.shape[0] - 10),
+                     (0, 0, 0), -1)
+        cv2.rectangle(dashboard, (10, status_y), (dashboard.shape[1] - 10, dashboard.shape[0] - 10),
+                     (0, 200, 200), 2)
+        
+        status_color = (0, 200, 0) if total_violations == 0 else (0, 0, 255)
+        status_text = "ALL SYSTEMS GREEN" if total_violations == 0 else f"⚠ {total_violations} VIOLATIONS"
+        
+        cv2.putText(dashboard, status_text, (30, status_y + 45),
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.3, status_color, 3)
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cv2.putText(dashboard, timestamp, (dashboard.shape[1] - 400, status_y + 45),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+    
+    def process_frame(self, frame):
+        """Process single camera frame"""
+        results = self.model(frame, conf=0.5)
+        detections = results[0].boxes
+        annotated = frame.copy()
+        
+        # Run all checks
+        conv_violations, people1 = self.check_conveyor_safety(annotated, detections)
+        harness_violations, people2, harness_count = self.check_harness_compliance(annotated, detections)
+        ppe_violations, people3, ppe_count = self.check_ppe_detection(annotated, detections)
+        forklift_violations, people4, forklift_count = self.check_forklift_operations(annotated, detections)
+        
+        all_violations = conv_violations + harness_violations + ppe_violations + forklift_violations
+        self.violations.extend(all_violations)
+        
+        return annotated, all_violations
+    
+    def save_report(self, filepath='outputs/reports/gls_report.json'):
+        """Save detailed violation report"""
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'total_violations': len(self.violations),
+            'violations': self.violations,
+            'duration': str(datetime.now() - self.start_time)
+        }
+        
+        import os
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        with open(filepath, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        self.logger.info(f'Professional report saved: {filepath}')

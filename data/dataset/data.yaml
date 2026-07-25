@@ -1,0 +1,13 @@
+names:
+- person
+- forklift
+- safety_harness
+- oil_tray
+- wheel_stopper
+- conveyor
+- goods_pallet
+nc: 7
+path: E:\gls-warehouse-safety-system\data\dataset
+test: images/test
+train: images/train
+val: images/val

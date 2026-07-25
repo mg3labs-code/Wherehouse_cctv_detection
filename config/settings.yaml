@@ -1,0 +1,26 @@
+# GLS Warehouse Safety Configuration
+
+# Safety Thresholds
+conveyor_danger_distance: 150          # pixels
+wheel_stopper_range: 100                # pixels
+forklift_speed_threshold: 100           # legacy pixels/second
+forklift_speed_limit_kmh: 8.0           # warehouse aisle limit (shown + alert)
+forklift_ref_height_m: 2.2              # scale for px → km/h estimate
+model_path: yolo26m.pt
+model_confidence: 0.25
+forklift_confidence: 0.025
+
+# Classes
+classes:
+  0: person
+  1: forklift
+  2: safety_harness
+  3: oil_tray
+  4: wheel_stopper
+  5: conveyor
+  6: goods_pallet
+
+# Output
+save_video: true
+video_codec: mp4v
+video_fps: 30
