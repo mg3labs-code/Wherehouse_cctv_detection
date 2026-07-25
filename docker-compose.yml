@@ -1,26 +1,19 @@
-version: '3.8'
+version: "3.8"
 
+# Local GPU monitor (optional). Railway uses Dockerfile (CPU API) instead.
 services:
   gls-safety:
     build: .
     image: gls-warehouse-safety:latest
     container_name: gls-safety-monitor
-    
-    runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    
+      - PORT=8001
     volumes:
       - ./data:/app/data
       - ./outputs:/app/outputs
       - ./models:/app/models
-    
     ports:
-      - "8000:8000"
-    
+      - "8001:8001"
     restart: unless-stopped
-    
     command: >
-      python -m src.main monitor
-      --source rtsp://camera:554/stream
-      --save-video
+      sh -c "uvicorn src.api.app:app --host 0.0.0.0 --port $${PORT:-8001}"
