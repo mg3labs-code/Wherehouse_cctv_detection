@@ -64,30 +64,40 @@ export type LiveStatus = {
 }
 
 /**
- * Backend origin for MJPEG stream.
- * - Localhost: hit :8001 directly (avoids Vite buffering)
- * - ngrok / remote: same-origin `/api` via Vite proxy (127.0.0.1 is unreachable from outside)
- * - Override anytime with VITE_API_ORIGIN
+ * Backend origin for API + MJPEG/JPEG.
+ * - VITE_API_ORIGIN overrides everything (set on Railway frontend build)
+ * - Local Vite: http://127.0.0.1:8001
+ * - Railway frontend hostname → Railway API service
+ * - Same-origin (FastAPI serving dist): ''
  */
 export function resolveApiOrigin(): string {
   const env = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/, '')
   if (env) return env
-  if (!import.meta.env.DEV) return ''
-  if (typeof window === 'undefined') return 'http://127.0.0.1:8001'
-  const host = window.location.hostname
-  const local = host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
-  return local ? 'http://127.0.0.1:8001' : ''
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    // Deployed Railway frontend → API service
+    if (host.includes('wherehousecctvdetectionfrontend')) {
+      return 'https://wherehousecctvdetection-production.up.railway.app'
+    }
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+    if (local && import.meta.env.DEV) return 'http://127.0.0.1:8001'
+  }
+
+  if (import.meta.env.DEV) return 'http://127.0.0.1:8001'
+  return ''
 }
 
 export const API_ORIGIN: string = resolveApiOrigin()
 
-function apiPath(path: string): string {
-  // JSON calls stay relative so Vite proxy works and cookies aren't needed
-  return path.startsWith('/') ? path : `/${path}`
+function apiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`
+  const origin = resolveApiOrigin()
+  return origin ? `${origin}${p}` : p
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(apiPath(path))
+  const res = await fetch(apiUrl(path))
   if (!res.ok) {
     const detail = await res.text()
     throw new Error(detail || `${res.status} ${res.statusText}`)
@@ -96,7 +106,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(apiPath(path), {
+  const res = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,

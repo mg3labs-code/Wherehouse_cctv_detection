@@ -1,0 +1,19 @@
+{
+	# Railway sets PORT; default 8080 locally
+	auto_https off
+	:{$PORT:8080}
+
+	encode gzip
+
+	# Proxy API + live stream to the FastAPI service
+	# Set BACKEND_URL in Railway if different from default
+	handle /api/* {
+		reverse_proxy {$BACKEND_URL:https://wherehousecctvdetection-production.up.railway.app}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
