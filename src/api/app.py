@@ -150,6 +150,25 @@ async def upload_video(file: UploadFile = File(...)):
     }
 
 
+@app.delete("/api/videos")
+def delete_video(name: str = Query(..., description="Basename of file inside data/videos")):
+    """Remove a CCTV clip from data/videos (basename only; no path traversal)."""
+    base = os.path.basename(name.strip().replace("\\", "/"))
+    if not base or base in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid name")
+    ext = os.path.splitext(base)[1].lower()
+    if ext not in _VIDEO_EXTS:
+        raise HTTPException(status_code=400, detail="Not a supported video file")
+    video_dir = os.path.realpath(_video_dir())
+    dest = os.path.realpath(os.path.join(video_dir, base))
+    if dest != video_dir and not dest.startswith(video_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(dest):
+        raise HTTPException(status_code=404, detail=f"Video not found: {base}")
+    os.remove(dest)
+    return {"ok": True, "deleted": base, "items": _list_video_items()}
+
+
 @app.get("/api/live/status")
 def live_status():
     return live_service.status()
