@@ -313,3 +313,18 @@ def purge_demo_events() -> int:
     with _db() as conn:
         cur = conn.execute("DELETE FROM events WHERE source = 'demo'")
         return int(cur.rowcount or 0)
+
+
+def consolidate_burst_duplicates() -> int:
+    """Keep one row per alert type per second — drop per-frame YOLO spam."""
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM events
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM events
+                GROUP BY event_type, substr(ts, 1, 19), COALESCE(worksite, '')
+            )
+            """
+        )
+        return int(cur.rowcount or 0)

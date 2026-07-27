@@ -57,6 +57,9 @@ class LiveMonitorService:
         self._pending_seq = 0
         self._pending_video_t = 0.0
         self._pending_lock = threading.Lock()
+        # One DB row per alert type per cooldown — not every YOLO frame
+        self._last_logged: Dict[str, float] = {}
+        self._log_cooldown_s = float(getattr(Config, "ALERT_LOG_COOLDOWN_S", 30.0))
 
     @property
     def running(self) -> bool:
@@ -89,6 +92,7 @@ class LiveMonitorService:
         profile = resolve_profile(path if not str(source).isdigit() else source)
         self._source = int(path) if str(path).isdigit() else path
         self._stop.clear()
+        self._last_logged = {}
         with self._lock:
             self._stats.update({
                 "running": False,
@@ -190,8 +194,20 @@ class LiveMonitorService:
         return bool(getattr(mon, "_aisle_road_frozen", False))
 
     def _log_violations(self, src: Any, profile: Dict[str, Any], violations: list) -> None:
+        """Persist distinct alert onsets only (cooldown), not per-frame spam."""
+        if not violations:
+            return
+        now = time.monotonic()
+        seen_types = set()
         for v in violations:
             etype = v.get("type", "UNKNOWN") if isinstance(v, dict) else "UNKNOWN"
+            if etype in seen_types:
+                continue
+            seen_types.add(etype)
+            last = self._last_logged.get(etype, 0.0)
+            if now - last < self._log_cooldown_s:
+                continue
+            self._last_logged[etype] = now
             sev = "high" if etype in (
                 "NO_HELMET",
                 "FORKLIFT_OVERSPEED",

@@ -39,8 +39,9 @@ class StartLiveBody(BaseModel):
 @app.on_event("startup")
 def on_startup():
     store.init_db()
-    # Real-time only — drop any old demo seed rows
+    # Real-time only — drop demo seeds and collapse per-frame alert spam
     store.purge_demo_events()
+    store.consolidate_burst_duplicates()
 
 
 @app.get("/api/health")
