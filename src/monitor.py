@@ -910,37 +910,77 @@ class ComplianceMonitor:
             workers.append(item)
         return workers
 
+    def _expand_coco_forklift_bbox(self, frame, det):
+        """COCO truck/bus often tags only the cab — stretch to aisle floor for track/speed."""
+        if not self.profile.get('expand_coco_forklift_bbox'):
+            return det
+        raw = (det.get('raw_name') or '').lower()
+        if raw not in ('truck', 'car', 'bus', 'train'):
+            return det
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = map(float, det['bbox'])
+        cx = (x1 + x2) / 2.0
+        min_w = w * float(self.profile.get('forklift_min_width_frac', 0.16))
+        bw = max(x2 - x1, min_w)
+        x1 = max(0.0, cx - bw / 2.0)
+        x2 = min(float(w - 1), cx + bw / 2.0)
+        floor_y = h * float(self.profile.get('forklift_floor_y_frac', 0.90))
+        y2 = min(float(h - 2), max(y2, floor_y))
+        min_h = h * float(self.profile.get('forklift_min_height_frac', 0.20))
+        y1 = max(0.0, min(y1, y2 - min_h))
+        out = dict(det)
+        out['bbox'] = np.array([x1, y1, x2, y2], dtype=float)
+        return out
+
     def _detect_yellow_forklift_blob(self, frame):
         """
-        Fallback for open-floor clips: large industrial yellow body = forklift
+        Fallback for open-floor clips: industrial yellow body = forklift
         when COCO misses (often labels person-only on the cab).
         """
         h, w = frame.shape[:2]
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        yellow = cv2.inRange(hsv, (15, 70, 80), (40, 255, 255))
+        yellow = cv2.bitwise_or(
+            cv2.inRange(hsv, (12, 55, 70), (42, 255, 255)),
+            cv2.inRange(hsv, (5, 80, 80), (18, 255, 255)),  # orange-yellow
+        )
         yellow = cv2.morphologyEx(yellow, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        yellow = cv2.morphologyEx(yellow, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
+        yellow = cv2.morphologyEx(yellow, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+
+        min_area = max(
+            900,
+            int(w * h * float(self.profile.get('forklift_yellow_min_area_frac', 0.012))),
+        )
+        max_area = int(w * h * float(self.profile.get('forklift_yellow_max_area_frac', 0.22)))
+        max_w = w * float(self.profile.get('forklift_yellow_max_width_frac', 0.45))
+        min_w = w * float(self.profile.get('forklift_yellow_min_width_frac', 0.06))
+        min_h = h * float(self.profile.get('forklift_yellow_min_height_frac', 0.08))
+        x_lo = w * float(self.profile.get('forklift_aisle_x_min', 0.18))
+        x_hi = w * float(self.profile.get('forklift_aisle_x_max', 0.82))
 
         best = None
-        best_area = 0
-        min_area = max(1200, int(w * h * 0.04))
+        best_score = -1.0
         for c in cv2.findContours(yellow, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
             area = float(cv2.contourArea(c))
-            if area < min_area:
+            if area < min_area or area > max_area:
                 continue
             x, y, bw, bh = cv2.boundingRect(c)
-            if bw < w * 0.12 or bh < h * 0.10:
+            if bw > max_w or bw < min_w or bh < min_h:
                 continue
-            if area / max(float(bw * bh), 1.0) < 0.25:
+            if area / max(float(bw * bh), 1.0) < 0.22:
                 continue
-            if area > best_area:
-                best_area = area
+            cx = x + bw / 2.0
+            if cx < x_lo or cx > x_hi:
+                continue
+            # Prefer compact, centered aisle blobs — not full-width floor tape
+            center_bonus = 1.0 - abs(cx - w / 2.0) / (w / 2.0)
+            score = area * (0.65 + 0.35 * center_bonus)
+            if score > best_score:
+                best_score = score
                 best = (x, y, bw, bh)
 
         if best is None:
             return []
         x, y, bw, bh = best
-        # Expand slightly to include mast/tires
         pad_x, pad_y = int(bw * 0.06), int(bh * 0.08)
         x1 = max(0, x - pad_x)
         y1 = max(0, y - pad_y)
@@ -1175,6 +1215,11 @@ class ComplianceMonitor:
         frame_area = float(w * h)
         conf = float(det.get('conf', 0))
         raw = (det.get('raw_name') or '').lower()
+        is_coco_vehicle = raw in ('truck', 'car', 'bus', 'train') and getattr(
+            self, '_map_coco_vehicles', False
+        )
+        if raw == 'forklift_track':
+            return True
 
         max_w = float(self.profile.get(
             'forklift_max_width_frac',
@@ -1197,9 +1242,14 @@ class ComplianceMonitor:
         if bw > w * max_w + 1.0 or area > frame_area * max_a:
             return False
 
-        # Always allow explicit yellow-body fallback on Sawant-style clips
+        # Always allow explicit yellow-body fallback on Sawant / GODOWN clips
         if raw == 'yellow_forklift' and getattr(self, '_detect_yellow_forklift', False):
-            return area >= max(1200.0, frame_area * 0.035)
+            min_a = float(self.profile.get('forklift_yellow_min_area_frac', 0.01))
+            max_a = float(self.profile.get('forklift_yellow_max_area_frac', 0.22))
+            max_yw = float(self.profile.get('forklift_yellow_max_width_frac', 0.45))
+            if bw > w * max_yw or area > frame_area * max_a:
+                return False
+            return area >= max(900.0, frame_area * min_a)
 
         # Cardboard shelf stacks ≠ forklift (GODOWN aisle cams; not open-floor Sawant)
         if not getattr(self, 'is_sawant', False):
@@ -1217,6 +1267,14 @@ class ComplianceMonitor:
                 return False
 
         in_aisle = (w * x_min) <= cx <= (w * x_max)
+
+        # COCO truck/bus on GODOWN clips: cab-only box — trust aisle position
+        if is_coco_vehicle:
+            min_veh = float(self.profile.get('forklift_vehicle_min_conf', 0.30))
+            if conf < min_veh:
+                return False
+            if in_aisle and cy < h * 0.82:
+                return True
 
         # Side-of-frame large boxes are almost always racks/sacks
         if not in_aisle:
@@ -1255,6 +1313,36 @@ class ComplianceMonitor:
                 return False
 
         return True
+
+    def _coast_forklifts_from_tracks(self, forklifts):
+        """Keep forklift box/count visible when YOLO misses a frame but track is fresh."""
+        if forklifts or not self._forklift_tracks:
+            return forklifts
+        now = float(getattr(self, '_motion_clock', None) or time.time())
+        ghosts = []
+        for tid, tr in self._forklift_tracks.items():
+            if (now - float(tr.get('time', 0.0))) > 2.5:
+                continue
+            cx, cy = tr['center']
+            bh = max(24.0, float(tr.get('bbox_h', 80.0)))
+            bw = max(24.0, bh * 0.95)
+            ghosts.append({
+                'bbox': np.array(
+                    [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2],
+                    dtype=float,
+                ),
+                'conf': 0.32,
+                'raw_name': 'forklift_track',
+                'track_id': tid,
+                'speed_kmh': round(float(tr.get('speed_kmh', 0.0)), 1),
+                'speed_limit_kmh': float(
+                    getattr(self.config, 'FORKLIFT_SPEED_LIMIT_KMH', 8.0)
+                ),
+            })
+        if not ghosts:
+            return forklifts
+        ghosts.sort(key=lambda g: float(g.get('speed_kmh', 0.0)), reverse=True)
+        return ghosts[: getattr(self.config, 'FORKLIFT_MAX_DETS', 2)]
 
     def _filter_forklift_false_positives(self, frame, forklifts):
         kept = [d for d in forklifts if self._is_plausible_forklift(frame, d)]
@@ -1355,6 +1443,9 @@ class ComplianceMonitor:
         boxes = dets.get('box', [])
 
         if self._enable_forklift_detect:
+            forklifts = [
+                self._expand_coco_forklift_bbox(frame, d) for d in forklifts
+            ]
             if getattr(self.config, 'USE_AISLE_ZOOM', False):
                 forklifts.extend(self._detect_forklift_aisle_zoom(frame))
             if self._enable_forklift_lights and getattr(
@@ -1381,6 +1472,7 @@ class ComplianceMonitor:
                     forklifts = forklifts[
                         : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
                     ]
+            forklifts = self._coast_forklifts_from_tracks(forklifts)
 
         workers = self._annotate_workers(frame, people, helmets, vests)
 

@@ -109,9 +109,15 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         # COCO often labels the yellow forklift as truck/bus on GODOWN clips
         "map_coco_vehicles": True,
         "detect_yellow_forklift": True,
-        "forklift_vehicle_min_conf": 0.30,
-        "forklift_aisle_x_min": 0.20,
-        "forklift_aisle_x_max": 0.80,
+        "forklift_vehicle_min_conf": 0.18,
+        "forklift_aisle_x_min": 0.15,
+        "forklift_aisle_x_max": 0.85,
+        "forklift_max_width_frac": 0.50,
+        "forklift_max_area_frac": 0.28,
+        "expand_coco_forklift_bbox": True,
+        "forklift_yellow_min_area_frac": 0.010,
+        "forklift_yellow_max_area_frac": 0.22,
+        "forklift_yellow_max_width_frac": 0.42,
         # Sparse live AI: keep tracks alive for speed in video-time
         "forklift_track_max_dist": 280,
         "forklift_track_ttl": 15.0,
