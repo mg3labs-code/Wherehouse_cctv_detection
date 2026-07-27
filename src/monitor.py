@@ -1247,7 +1247,11 @@ class ComplianceMonitor:
             min_a = float(self.profile.get('forklift_yellow_min_area_frac', 0.01))
             max_a = float(self.profile.get('forklift_yellow_max_area_frac', 0.22))
             max_yw = float(self.profile.get('forklift_yellow_max_width_frac', 0.45))
+            floor_y = float(self.profile.get('forklift_floor_min_y_frac', 0.52))
             if bw > w * max_yw or area > frame_area * max_a:
+                return False
+            # Yellow aisle tape / distant paint sits high in frame — not a forklift
+            if y2 < h * floor_y:
                 return False
             return area >= max(900.0, frame_area * min_a)
 
@@ -1313,6 +1317,65 @@ class ComplianceMonitor:
                 return False
 
         return True
+
+    def _apply_forklift_motion_gate(self, forklifts):
+        """Drop static rack/tape FPs — real forklifts move between frames."""
+        if not self.profile.get('forklift_require_motion') or not forklifts:
+            return forklifts
+        now = float(getattr(self, '_motion_clock', None) or time.time())
+        state = getattr(self, '_fl_motion_state', None)
+        if state is None:
+            state = {}
+            self._fl_motion_state = state
+
+        confirm_conf = float(self.profile.get('forklift_vehicle_confirm_conf', 0.26))
+        need_drift = float(self.profile.get('forklift_motion_drift_px', 35))
+        match_dist = float(self.profile.get('forklift_motion_match_dist', 140))
+        ttl = float(self.profile.get('forklift_motion_ttl', 4.0))
+
+        confirmed = []
+        for fl in forklifts:
+            cx, cy = get_bbox_center(fl['bbox'])
+            raw = (fl.get('raw_name') or '').lower()
+            conf = float(fl.get('conf', 0))
+
+            if raw in ('truck', 'bus', 'car', 'train') and conf >= confirm_conf:
+                confirmed.append(fl)
+                continue
+            if raw == 'forklift_track':
+                confirmed.append(fl)
+                continue
+
+            key = None
+            best_d = match_dist
+            for k, st in state.items():
+                d = calculate_distance((cx, cy), st['center'])
+                if d <= best_d:
+                    best_d, key = d, k
+            if key is None:
+                key = f'fl_{len(state)}'
+                state[key] = {
+                    'center': (cx, cy),
+                    'time': now,
+                    'drift': 0.0,
+                    'confirmed': False,
+                }
+                continue
+
+            st = state[key]
+            st['drift'] = float(st.get('drift', 0.0)) + calculate_distance(
+                (cx, cy), st['center']
+            )
+            st['center'] = (cx, cy)
+            st['time'] = now
+            if st.get('confirmed') or st['drift'] >= need_drift:
+                st['confirmed'] = True
+                confirmed.append(fl)
+
+        self._fl_motion_state = {
+            k: v for k, v in state.items() if (now - float(v.get('time', now))) <= ttl
+        }
+        return confirmed
 
     def _coast_forklifts_from_tracks(self, forklifts):
         """Keep forklift box/count visible when YOLO misses a frame but track is fresh."""
@@ -1472,6 +1535,7 @@ class ComplianceMonitor:
                     forklifts = forklifts[
                         : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
                     ]
+            forklifts = self._apply_forklift_motion_gate(forklifts)
             forklifts = self._coast_forklifts_from_tracks(forklifts)
 
         workers = self._annotate_workers(frame, people, helmets, vests)

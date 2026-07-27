@@ -101,11 +101,15 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "mode": "warehouse",
         "location": "GODOWN NO-3 - Aisle",
-        # No roadway overlays; detect real aisle forklifts + PPE
-        "enable_yellow_lines": False,
+        # Aisle Road Ways + real moving forklifts only (no static rack/tape FPs)
+        "enable_yellow_lines": True,
         "enable_forklift_lights": False,
         "enable_forklift_detect": True,
         "enable_ppe_dashboard": True,
+        "forklift_require_motion": True,
+        "forklift_motion_drift_px": 30,
+        "forklift_vehicle_confirm_conf": 0.26,
+        "forklift_floor_min_y_frac": 0.52,
         # COCO often labels the yellow forklift as truck/bus on GODOWN clips
         "map_coco_vehicles": True,
         "detect_yellow_forklift": True,
