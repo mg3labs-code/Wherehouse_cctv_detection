@@ -15,8 +15,11 @@ DEFAULT_PROFILE = "warehouse_aisle"
 # Video Project 16 — production-line danger / product-touch UI only
 VIDEO_PROJECT_16 = "video_project_16"
 
-# GODOWN NO-3 box aisle — Safe Route + PPE (No Helmet) UI only
-SAFE_ROUTE_NO3 = "safe_route_no3"
+# GODOWN NO-3 — PPE only (no Safe Route / roadway overlays)
+GODOWN_NO3 = "godown_no3"
+
+# Legacy key kept for existing sessions / DB rows
+SAFE_ROUTE_NO3 = GODOWN_NO3
 
 # GODOWN NO-2A — aisle Road Ways only (no forklifts in these clips)
 GODOWN_NO2A = "godown_no2a"
@@ -93,15 +96,16 @@ PROFILES: Dict[str, Dict[str, Any]] = {
             (0.24, 0.66),
         ],
     },
-    SAFE_ROUTE_NO3: {
-        "name": SAFE_ROUTE_NO3,
+    GODOWN_NO3: {
+        "name": GODOWN_NO3,
         "title": "Hypervis Warehouse Safety Monitor - AI Powered",
-        "mode": "safe_route",
-        "location": "Zone B - Aisle 4",
-        # No forklift light FPs on cardboard-box aisles
+        "mode": "warehouse",
+        "location": "GODOWN NO-3 - Aisle",
+        # Plain playback: PPE checks only — no left/right path overlays
+        "enable_yellow_lines": False,
         "enable_forklift_lights": False,
-        "enable_yellow_lines": True,
-        "route_label": "Safe Route",
+        "enable_forklift_detect": False,
+        "enable_ppe_dashboard": True,
     },
 }
 
@@ -110,11 +114,11 @@ PROFILES: Dict[str, Dict[str, Any]] = {
 _PROFILE_MATCHERS = (
     ("video project 16", VIDEO_PROJECT_16),
     ("videoproject16", VIDEO_PROJECT_16),
-    # Cardboard-box Safe Route scene — GODOWN NO-3 only (not GODOWN-1 / 2A / Project 16)
-    ("godown no-3", SAFE_ROUTE_NO3),
-    ("godown no 3", SAFE_ROUTE_NO3),
-    ("godown_no-3", SAFE_ROUTE_NO3),
-    ("godown_no_3", SAFE_ROUTE_NO3),
+    # GODOWN NO-3 aisle cams — plain video + PPE (no Safe Route lines)
+    ("godown no-3", GODOWN_NO3),
+    ("godown no 3", GODOWN_NO3),
+    ("godown_no-3", GODOWN_NO3),
+    ("godown_no_3", GODOWN_NO3),
     # GODOWN NO-2A aisle cams — Road Ways only, no forklift FPs on pallets/racks
     ("godown no-2a", GODOWN_NO2A),
     ("godown no 2a", GODOWN_NO2A),

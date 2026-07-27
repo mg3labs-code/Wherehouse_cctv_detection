@@ -305,9 +305,9 @@ class LiveMonitorService:
             video_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
             if video_fps < 1.0:
                 video_fps = 25.0
-            # Cap publish rate for small/high-fps clips (keeps UI smooth, not overloaded)
-            display_fps_cap = min(video_fps, 20.0)
-            frame_interval = 1.0 / display_fps_cap
+            # Pace display at the video's native FPS (true 1× playback)
+            display_fps_cap = video_fps
+            frame_interval = 1.0 / max(display_fps_cap, 1.0)
 
             self._running = True
             self._frame_count = 0
