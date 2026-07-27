@@ -15,8 +15,11 @@ DEFAULT_PROFILE = "warehouse_aisle"
 # Video Project 16 — production-line danger / product-touch UI only
 VIDEO_PROJECT_16 = "video_project_16"
 
-# GODOWN NO-3 — forklift + PPE (no roadway overlays)
+# GODOWN NO-3 — forklift + PPE (aisle lines on by default)
 GODOWN_NO3 = "godown_no3"
+
+# ONE clip only: ...25076934.mp4 — forklift + PPE, no left/right aisle lines
+GODOWN_NO3_25076934 = "godown_no3_forklift_clip"
 
 # Legacy key kept for existing sessions / DB rows
 SAFE_ROUTE_NO3 = GODOWN_NO3
@@ -127,6 +130,35 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "forklift_track_ttl": 15.0,
         "forklift_ref_height_m": 2.2,
     },
+    # This file only — keep forklift/PPE; hide Aisle Road Way Left/Right overlays
+    GODOWN_NO3_25076934: {
+        "name": GODOWN_NO3_25076934,
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
+        "mode": "warehouse",
+        "location": "GODOWN NO-3 - Forklift Aisle",
+        "enable_yellow_lines": False,
+        "enable_forklift_lights": False,
+        "enable_forklift_detect": True,
+        "enable_ppe_dashboard": True,
+        "forklift_require_motion": True,
+        "forklift_motion_drift_px": 30,
+        "forklift_vehicle_confirm_conf": 0.26,
+        "forklift_floor_min_y_frac": 0.52,
+        "map_coco_vehicles": True,
+        "detect_yellow_forklift": True,
+        "forklift_vehicle_min_conf": 0.18,
+        "forklift_aisle_x_min": 0.15,
+        "forklift_aisle_x_max": 0.85,
+        "forklift_max_width_frac": 0.50,
+        "forklift_max_area_frac": 0.28,
+        "expand_coco_forklift_bbox": True,
+        "forklift_yellow_min_area_frac": 0.010,
+        "forklift_yellow_max_area_frac": 0.22,
+        "forklift_yellow_max_width_frac": 0.42,
+        "forklift_track_max_dist": 280,
+        "forklift_track_ttl": 15.0,
+        "forklift_ref_height_m": 2.2,
+    },
 }
 
 # Filename matchers (case-insensitive substring of basename without extension)
@@ -134,7 +166,9 @@ PROFILES: Dict[str, Dict[str, Any]] = {
 _PROFILE_MATCHERS = (
     ("video project 16", VIDEO_PROJECT_16),
     ("videoproject16", VIDEO_PROJECT_16),
-    # GODOWN NO-3 aisle cams — plain video + PPE (no Safe Route lines)
+    # Single NO-3 forklift clip — no aisle lines (must be before generic godown no-3)
+    ("25076934", GODOWN_NO3_25076934),
+    # GODOWN NO-3 aisle cams — aisle lines + PPE + forklift when moving
     ("godown no-3", GODOWN_NO3),
     ("godown no 3", GODOWN_NO3),
     ("godown_no-3", GODOWN_NO3),
