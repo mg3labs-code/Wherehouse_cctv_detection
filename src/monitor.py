@@ -637,9 +637,14 @@ class ComplianceMonitor:
         self.is_safe_route = is_safe_route(self.profile)
         self.is_sawant = is_sawant_forklift(self.profile)
         self._enable_yellow_lines = bool(self.profile.get("enable_yellow_lines", True))
-        self._enable_forklift_lights = bool(self.profile.get("enable_forklift_lights", True))
+        self._enable_forklift_detect = bool(self.profile.get("enable_forklift_detect", True))
+        self._enable_forklift_lights = bool(
+            self.profile.get("enable_forklift_lights", True)
+        ) and self._enable_forklift_detect
         self._map_coco_vehicles = bool(self.profile.get("map_coco_vehicles", False))
-        self._detect_yellow_forklift = bool(self.profile.get("detect_yellow_forklift", False))
+        self._detect_yellow_forklift = bool(
+            self.profile.get("detect_yellow_forklift", False)
+        ) and self._enable_forklift_detect
         self._route_distance_m = 0.0
         self._route_last_center = None
         self._route_t0 = None
@@ -1134,6 +1139,27 @@ class ComplianceMonitor:
             order = remaining
         return keep
 
+    def _looks_like_cardboard_rack(self, frame, bbox):
+        """True when ROI is mostly brown cardboard boxes (common forklift FP)."""
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 - x1 < 12 or y2 - y1 < 12:
+            return False
+        roi = frame[y1:y2, x1:x2]
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        # Cardboard / carton brown–tan (ITC GODOWN racks)
+        cardboard = cv2.inRange(hsv, (5, 25, 40), (32, 200, 230))
+        # Industrial yellow forklift paint — if present, not a rack FP
+        yellow = cv2.inRange(hsv, (15, 80, 90), (40, 255, 255))
+        n = float(roi.shape[0] * roi.shape[1])
+        card_frac = float(np.count_nonzero(cardboard)) / n
+        yel_frac = float(np.count_nonzero(yellow)) / n
+        if yel_frac >= 0.04:
+            return False
+        return card_frac >= 0.38
+
     def _is_plausible_forklift(self, frame, det):
         """
         Reject rack / sack / side-shelf false positives while keeping real
@@ -1175,12 +1201,20 @@ class ComplianceMonitor:
         if raw == 'yellow_forklift' and getattr(self, '_detect_yellow_forklift', False):
             return area >= max(1200.0, frame_area * 0.035)
 
+        # Cardboard shelf stacks ≠ forklift (GODOWN NO-2A / aisle cams)
+        if not getattr(self, '_map_coco_vehicles', False):
+            if self._looks_like_cardboard_rack(frame, det['bbox']):
+                return False
+
         # Touching left/right image edge usually means shelf clutter
         # (skip for open-floor Sawant clips where the forklift fills the frame)
         if not getattr(self, '_map_coco_vehicles', False):
             if x1 <= 2 or x2 >= w - 3:
                 if cy > h * 0.35:
                     return False
+            # Tall column on side of aisle = rack face, not a vehicle
+            if (bh / bw) > 1.85 and (cx < w * 0.34 or cx > w * 0.66):
+                return False
 
         in_aisle = (w * x_min) <= cx <= (w * x_max)
 
@@ -1194,22 +1228,31 @@ class ComplianceMonitor:
         if (bw / bh) > 2.0 and cy > h * 0.48:
             return False
 
+        # Footprint should meet the aisle floor — floating mid-rack boxes are FPs
+        if not getattr(self, '_map_coco_vehicles', False):
+            if y2 < h * 0.52 and area > frame_area * 0.02:
+                return False
+
         # COCO truck/bus leftovers (if any) must sit in aisle with solid conf
         if raw in ('truck', 'car', 'bus', 'train'):
             min_veh = float(self.profile.get('forklift_vehicle_min_conf', 0.50))
             if getattr(self, '_map_coco_vehicles', False):
                 if conf < min_veh:
                     return False
-            elif conf < 0.50 or not in_aisle or cy > h * 0.72:
+            elif conf < 0.55 or not in_aisle or cy > h * 0.72:
                 return False
 
         # Light-based dets must stay in center corridor
         if 'light' in raw and not in_aisle:
             return False
 
-        # YOLO-World forklift on racks: require aisle + not a giant side blob
-        if 'forklift' in raw and not in_aisle and conf < 0.55:
-            return False
+        # YOLO-World forklift on racks: require aisle + stronger score
+        if 'forklift' in raw:
+            if not in_aisle and conf < 0.55:
+                return False
+            # Low open-vocab scores on carton stacks are the usual FP source
+            if not getattr(self, '_map_coco_vehicles', False) and conf < 0.22:
+                return False
 
         return True
 
@@ -1304,33 +1347,40 @@ class ComplianceMonitor:
 
         dets = self._extract_detections(results)
         people = dets['person']
-        forklifts = list(dets['forklift'])
+        forklifts = list(dets['forklift']) if self._enable_forklift_detect else []
         conveyors = dets['conveyor']
         harnesses = dets['safety_harness']
         helmets = dets.get('helmet', [])
         vests = dets.get('vest', [])
         boxes = dets.get('box', [])
 
-        if getattr(self.config, 'USE_AISLE_ZOOM', False):
-            forklifts.extend(self._detect_forklift_aisle_zoom(frame))
-        if self._enable_forklift_lights and getattr(self.config, 'USE_FORKLIFT_LIGHT_DETECTOR', True):
-            forklifts.extend(self._detect_forklift_safety_lights(frame))
-        # Soft-merge duplicates (cab+body / YOLO+lights) into one forklift
-        forklifts = self._merge_forklifts(forklifts, iou_thresh=0.12, center_frac=0.95)
-        # Drop rack/sack false positives; keep real aisle forklifts
-        forklifts = self._filter_forklift_false_positives(frame, forklifts)[
-            : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
-        ]
-        # Yellow body: fill gaps / stabilize track when COCO flickers
-        if self._detect_yellow_forklift:
-            yel = self._filter_forklift_false_positives(
-                frame, self._detect_yellow_forklift_blob(frame)
+        if self._enable_forklift_detect:
+            if getattr(self.config, 'USE_AISLE_ZOOM', False):
+                forklifts.extend(self._detect_forklift_aisle_zoom(frame))
+            if self._enable_forklift_lights and getattr(
+                self.config, 'USE_FORKLIFT_LIGHT_DETECTOR', True
+            ):
+                forklifts.extend(self._detect_forklift_safety_lights(frame))
+            # Soft-merge duplicates (cab+body / YOLO+lights) into one forklift
+            forklifts = self._merge_forklifts(
+                forklifts, iou_thresh=0.12, center_frac=0.95
             )
-            if yel:
-                forklifts = self._merge_forklifts(
-                    list(forklifts) + list(yel), iou_thresh=0.08, center_frac=0.9
+            # Drop rack/sack false positives; keep real aisle forklifts
+            forklifts = self._filter_forklift_false_positives(frame, forklifts)[
+                : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
+            ]
+            # Yellow body: fill gaps / stabilize track when COCO flickers
+            if self._detect_yellow_forklift:
+                yel = self._filter_forklift_false_positives(
+                    frame, self._detect_yellow_forklift_blob(frame)
                 )
-                forklifts = forklifts[: getattr(self.config, 'FORKLIFT_MAX_DETS', 2)]
+                if yel:
+                    forklifts = self._merge_forklifts(
+                        list(forklifts) + list(yel), iou_thresh=0.08, center_frac=0.9
+                    )
+                    forklifts = forklifts[
+                        : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
+                    ]
 
         workers = self._annotate_workers(frame, people, helmets, vests)
 

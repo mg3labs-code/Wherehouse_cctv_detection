@@ -18,6 +18,9 @@ VIDEO_PROJECT_16 = "video_project_16"
 # GODOWN NO-3 box aisle — Safe Route + PPE (No Helmet) UI only
 SAFE_ROUTE_NO3 = "safe_route_no3"
 
+# GODOWN NO-2A — aisle Road Ways only (no forklifts in these clips)
+GODOWN_NO2A = "godown_no2a"
+
 # Sawant / open-floor forklift demo — no aisle lines; detect yellow forklift + PPE
 SAWANT_FORKLIFT = "sawant_forklift"
 
@@ -27,8 +30,20 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "title": "GLS Warehouse Safety Monitor - AI Powered",
         "enable_yellow_lines": True,
         "enable_forklift_lights": True,
+        "enable_forklift_detect": True,
         "enable_ppe_dashboard": True,
         "mode": "warehouse",
+    },
+    GODOWN_NO2A: {
+        "name": GODOWN_NO2A,
+        "title": "GLS Warehouse Safety Monitor - AI Powered",
+        "mode": "warehouse",
+        "location": "GODOWN NO-2A - Aisle",
+        # These clips are empty aisles + cardboard racks — never label boxes as forklift
+        "enable_yellow_lines": True,
+        "enable_forklift_lights": False,
+        "enable_forklift_detect": False,
+        "enable_ppe_dashboard": True,
     },
     SAWANT_FORKLIFT: {
         "name": SAWANT_FORKLIFT,
@@ -100,6 +115,12 @@ _PROFILE_MATCHERS = (
     ("godown no 3", SAFE_ROUTE_NO3),
     ("godown_no-3", SAFE_ROUTE_NO3),
     ("godown_no_3", SAFE_ROUTE_NO3),
+    # GODOWN NO-2A aisle cams — Road Ways only, no forklift FPs on pallets/racks
+    ("godown no-2a", GODOWN_NO2A),
+    ("godown no 2a", GODOWN_NO2A),
+    ("godown_no-2a", GODOWN_NO2A),
+    ("godown_no_2a", GODOWN_NO2A),
+    ("godown no-2 a", GODOWN_NO2A),
     # Open-floor forklift demo (Sawant) — no aisle road-way overlays
     ("sawant", SAWANT_FORKLIFT),
     ("wear house working with forklift", SAWANT_FORKLIFT),
