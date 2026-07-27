@@ -227,27 +227,29 @@ def summary_kpis(worksite: Optional[str] = None) -> Dict[str, Any]:
     return {
         "safety_score": score,
         "safety_label": label,
+        # Honest real-time KPIs (incidents_prevented kept as alias of total alerts)
         "incidents_prevented": total,
+        "total_alerts": total,
         "asset_hours": _session_asset_hours(),
         "assets": _count_video_assets(),
         "operators": _operators_seen(recent),
-        "total_alerts": total,
         "high_severity": danger,
         "medium_severity": warn,
         "by_type": by_type,
         "online": True,
+        "data_source": "live",
     }
 
 
 def timeseries(days: int = 14, worksite: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Daily buckets for charts from real logged events only."""
+    """Daily buckets for charts from real logged live-monitor events only."""
     events = list_events(limit=10000, worksite=worksite, since_hours=days * 24)
     events = [e for e in events if (e.get("source") or "") != "demo"]
     buckets: Dict[str, Dict[str, int]] = {}
     today = datetime.now().date()
     for i in range(days):
         d = (today - timedelta(days=days - 1 - i)).isoformat()
-        buckets[d] = {"incidents": 0, "overrides": 0, "emergency": 0}
+        buckets[d] = {"alerts": 0, "medium": 0, "high": 0}
 
     for e in events:
         try:
@@ -257,12 +259,13 @@ def timeseries(days: int = 14, worksite: Optional[str] = None) -> List[Dict[str,
         if day not in buckets:
             continue
         sev = (e.get("severity") or "").lower()
-        buckets[day]["incidents"] += 1
+        buckets[day]["alerts"] += 1
         if sev == "medium":
-            buckets[day]["overrides"] += 1
+            buckets[day]["medium"] += 1
         if sev == "high":
-            buckets[day]["emergency"] += 1
+            buckets[day]["high"] += 1
 
+    # Real-time series keys only (no demo "overrides" / "emergency stops" aliases)
     return [{"date": d, **buckets[d]} for d in sorted(buckets.keys())]
 
 
