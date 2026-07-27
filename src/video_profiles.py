@@ -27,6 +27,9 @@ SAFE_ROUTE_NO3 = GODOWN_NO3
 # GODOWN NO-2A — aisle Road Ways only (no forklifts in these clips)
 GODOWN_NO2A = "godown_no2a"
 
+# GODOWN-1 only — one distant forklift + aisle lines (no duplicate boxes)
+GODOWN_1 = "godown_1"
+
 # Sawant / open-floor forklift demo — no aisle lines; detect yellow forklift + PPE
 SAWANT_FORKLIFT = "sawant_forklift"
 
@@ -50,6 +53,31 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "enable_forklift_lights": False,
         "enable_forklift_detect": False,
         "enable_ppe_dashboard": True,
+    },
+    # GODOWN-1 only: keep Road Ways; force single forklift + usable speed
+    GODOWN_1: {
+        "name": GODOWN_1,
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
+        "mode": "warehouse",
+        "location": "GODOWN-1 - Aisle",
+        "enable_yellow_lines": True,
+        "enable_forklift_lights": True,
+        "enable_forklift_detect": True,
+        "enable_ppe_dashboard": True,
+        "forklift_max_dets": 1,
+        "forklift_merge_same_aisle": True,
+        "forklift_merge_center_frac": 1.35,
+        "forklift_merge_iou": 0.05,
+        "map_coco_vehicles": True,
+        "forklift_vehicle_min_conf": 0.20,
+        "forklift_aisle_x_min": 0.28,
+        "forklift_aisle_x_max": 0.72,
+        "forklift_max_width_frac": 0.35,
+        "forklift_max_area_frac": 0.18,
+        "expand_coco_forklift_bbox": True,
+        "forklift_track_max_dist": 360,
+        "forklift_track_ttl": 18.0,
+        "forklift_ref_height_m": 2.4,
     },
     SAWANT_FORKLIFT: {
         "name": SAWANT_FORKLIFT,
@@ -173,6 +201,10 @@ _PROFILE_MATCHERS = (
     ("godown no 3", GODOWN_NO3),
     ("godown_no-3", GODOWN_NO3),
     ("godown_no_3", GODOWN_NO3),
+    # GODOWN-1 distant aisle forklift (this file only — not NO-2A / NO-3)
+    ("godown-1", GODOWN_1),
+    ("godown_1", GODOWN_1),
+    ("25137190", GODOWN_1),
     # GODOWN NO-2A aisle cams — Road Ways only, no forklift FPs on pallets/racks
     ("godown no-2a", GODOWN_NO2A),
     ("godown no 2a", GODOWN_NO2A),

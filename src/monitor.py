@@ -1112,7 +1112,7 @@ class ComplianceMonitor:
             filtered.append(d)
 
         merged = self._merge_forklifts(filtered, iou_thresh=0.15, center_frac=0.9)
-        max_dets = getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
+        max_dets = self._forklift_max_dets()
         return sorted(merged, key=lambda d: d['conf'], reverse=True)[:max_dets]
 
     def _detect_forklift_aisle_zoom(self, frame):
@@ -1405,14 +1405,13 @@ class ComplianceMonitor:
         if not ghosts:
             return forklifts
         ghosts.sort(key=lambda g: float(g.get('speed_kmh', 0.0)), reverse=True)
-        return ghosts[: getattr(self.config, 'FORKLIFT_MAX_DETS', 2)]
+        return ghosts[: self._forklift_max_dets()]
 
     def _filter_forklift_false_positives(self, frame, forklifts):
         kept = [d for d in forklifts if self._is_plausible_forklift(frame, d)]
         return sorted(kept, key=lambda d: float(d.get('conf', 0)), reverse=True)
 
-    @staticmethod
-    def _merge_forklifts(dets, iou_thresh=0.15, center_frac=0.85):
+    def _merge_forklifts(self, dets, iou_thresh=0.15, center_frac=0.85):
         """
         Strong merge for duplicate forklift boxes on the same vehicle.
         Uses IoU, containment (IoS), and center distance — light detector
@@ -1420,6 +1419,10 @@ class ComplianceMonitor:
         """
         if len(dets) <= 1:
             return dets
+
+        iou_thresh = float(self.profile.get('forklift_merge_iou', iou_thresh))
+        center_frac = float(self.profile.get('forklift_merge_center_frac', center_frac))
+        same_aisle = bool(self.profile.get('forklift_merge_same_aisle', False))
 
         order = sorted(dets, key=lambda d: d['conf'], reverse=True)
         keep = []
@@ -1451,11 +1454,19 @@ class ComplianceMonitor:
                     (bx[2] - bx[0] + ox[2] - ox[0]) / 2.0
                     + (bx[3] - bx[1] + ox[3] - ox[1]) / 2.0
                 ) / 2.0
+                max_bw = max(bx[2] - bx[0], ox[2] - ox[0])
+
+                # Distant aisle cams: cab + safety lights sit on same corridor
+                # but have low IoU — treat as one forklift when X aligns
+                aisle_aligned = False
+                if same_aisle:
+                    aisle_aligned = abs(bcx - ocx) <= max(max_bw * 0.85, 40.0)
 
                 same_object = (
                     iou >= iou_thresh
                     or ios >= 0.40
                     or dist < avg_size * center_frac
+                    or aisle_aligned
                 )
 
                 if same_object:
@@ -1475,6 +1486,14 @@ class ComplianceMonitor:
             order = remaining
 
         return keep
+
+    def _forklift_max_dets(self):
+        return int(
+            self.profile.get(
+                'forklift_max_dets',
+                getattr(self.config, 'FORKLIFT_MAX_DETS', 2),
+            )
+        )
 
     def process_frame(self, frame):
         """Process single frame and detect violations"""
@@ -1521,7 +1540,7 @@ class ComplianceMonitor:
             )
             # Drop rack/sack false positives; keep real aisle forklifts
             forklifts = self._filter_forklift_false_positives(frame, forklifts)[
-                : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
+                : self._forklift_max_dets()
             ]
             # Yellow body: fill gaps / stabilize track when COCO flickers
             if self._detect_yellow_forklift:
@@ -1532,11 +1551,11 @@ class ComplianceMonitor:
                     forklifts = self._merge_forklifts(
                         list(forklifts) + list(yel), iou_thresh=0.08, center_frac=0.9
                     )
-                    forklifts = forklifts[
-                        : getattr(self.config, 'FORKLIFT_MAX_DETS', 2)
-                    ]
+                    forklifts = forklifts[: self._forklift_max_dets()]
             forklifts = self._apply_forklift_motion_gate(forklifts)
             forklifts = self._coast_forklifts_from_tracks(forklifts)
+            # Hard cap after coast (ghosts must not resurrect a 2nd box)
+            forklifts = forklifts[: self._forklift_max_dets()]
 
         workers = self._annotate_workers(frame, people, helmets, vests)
 
