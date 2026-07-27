@@ -131,7 +131,7 @@ class Config:
         'sack': 'box',
     }
 
-    DASHBOARD_TITLE = 'GLS Warehouse Safety Monitor - AI Powered'
+    DASHBOARD_TITLE = 'Hypervis Warehouse Safety Monitor - AI Powered'
     ZONE_NAME = 'Zone B - Aisle 4'
     
     # ====== SAFETY THRESHOLDS ======

@@ -279,7 +279,7 @@ def render_project16_dashboard(
 
     _cover_burned_in_chrome(img)
 
-    _txt(img, "Industrial Safety AI - GLS", (12, 28), 0.55, COLOR_TEXT, 1)
+    _txt(img, "Industrial Safety AI - Hypervis", (12, 28), 0.55, COLOR_TEXT, 1)
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     _txt(img, now, (w - 200, 28), 0.45, COLOR_MUTED, 1)
     status = "DANGER" if in_danger else "MONITORING"

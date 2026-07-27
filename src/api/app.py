@@ -17,9 +17,9 @@ from . import store
 from .live import live_service
 
 app = FastAPI(
-    title="GLS Warehouse Safety API",
+    title="Hypervis Warehouse Safety API",
     version="1.0.0",
-    description="Production API for GLS warehouse safety analytics and live monitoring",
+    description="Production API for Hypervis warehouse safety analytics and live monitoring",
 )
 
 app.add_middleware(

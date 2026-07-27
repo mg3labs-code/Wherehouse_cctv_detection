@@ -186,7 +186,7 @@ def monitor_command(args):
     start_time = time.time()
     playback_t0 = time.time()
     
-    window_title = profile.get('title', 'GLS Warehouse Safety Monitor - AI Powered')
+    window_title = profile.get('title', 'Hypervis Warehouse Safety Monitor - AI Powered')
     print(
         f"Monitoring started... profile={profile.get('name')} "
         f"playback=1x@{video_fps:.0f}fps (q=quit, s=screenshot)"

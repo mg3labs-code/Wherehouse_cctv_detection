@@ -62,7 +62,7 @@ export function Layout() {
             <img src="/contracto-logo.png" alt="CONTRACTO" width={168} height={72} />
           </div>
           <strong className="user-name">Safety Admin</strong>
-          <span className="user-org">GLS Warehouse</span>
+          <span className="user-org">Hypervis Warehouse</span>
           <span className="user-role">Account Owner</span>
         </div>
 
@@ -104,7 +104,7 @@ export function Layout() {
 
       <div className="main">
         <header className="topbar">
-          <h2>GLS.AI Dashboard</h2>
+          <h2>Hypervis.AI Dashboard</h2>
           <div className="topbar-right">
             <button type="button" className="lang-btn" title="Language">
               <IconFlag />

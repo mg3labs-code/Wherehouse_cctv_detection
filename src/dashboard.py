@@ -65,7 +65,7 @@ def _draw_pie(img, cx, cy, radius, segments: List[Tuple[float, Tuple[int, int, i
     cv2.circle(img, (cx, cy), int(radius * 0.45), COLOR_PANEL_BG, -1)
 
 
-def draw_title_bar(img: np.ndarray, title: str = "GLS Warehouse Safety Monitor - AI Powered") -> None:
+def draw_title_bar(img: np.ndarray, title: str = "Hypervis Warehouse Safety Monitor - AI Powered") -> None:
     s = _scale(img)
     h = int(42 * s)
     overlay = img.copy()

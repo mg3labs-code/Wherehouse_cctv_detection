@@ -27,7 +27,7 @@ SAWANT_FORKLIFT = "sawant_forklift"
 PROFILES: Dict[str, Dict[str, Any]] = {
     DEFAULT_PROFILE: {
         "name": "warehouse_aisle",
-        "title": "GLS Warehouse Safety Monitor - AI Powered",
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "enable_yellow_lines": True,
         "enable_forklift_lights": True,
         "enable_forklift_detect": True,
@@ -36,7 +36,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
     },
     GODOWN_NO2A: {
         "name": GODOWN_NO2A,
-        "title": "GLS Warehouse Safety Monitor - AI Powered",
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "mode": "warehouse",
         "location": "GODOWN NO-2A - Aisle",
         # These clips are empty aisles + cardboard racks — never label boxes as forklift
@@ -47,7 +47,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
     },
     SAWANT_FORKLIFT: {
         "name": SAWANT_FORKLIFT,
-        "title": "GLS Warehouse Safety Monitor - AI Powered",
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "mode": "sawant_forklift",
         "location": "Forklift Operations",
         # This clip has no painted aisle road-ways — hide Left/Right lines
@@ -69,7 +69,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
     },
     VIDEO_PROJECT_16: {
         "name": VIDEO_PROJECT_16,
-        "title": "Industrial Safety AI - GLS",
+        "title": "Industrial Safety AI - Hypervis",
         "mode": "project16",
         "location": "Production Line - Zone B",
         # Fire PRODUCT TOUCH on first confirmed contact (seconds for duration alert)
@@ -95,7 +95,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
     },
     SAFE_ROUTE_NO3: {
         "name": SAFE_ROUTE_NO3,
-        "title": "GLS Warehouse Safety Monitor - AI Powered",
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "mode": "safe_route",
         "location": "Zone B - Aisle 4",
         # No forklift light FPs on cardboard-box aisles
