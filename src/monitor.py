@@ -1201,14 +1201,14 @@ class ComplianceMonitor:
         if raw == 'yellow_forklift' and getattr(self, '_detect_yellow_forklift', False):
             return area >= max(1200.0, frame_area * 0.035)
 
-        # Cardboard shelf stacks ≠ forklift (GODOWN NO-2A / aisle cams)
-        if not getattr(self, '_map_coco_vehicles', False):
+        # Cardboard shelf stacks ≠ forklift (GODOWN aisle cams; not open-floor Sawant)
+        if not getattr(self, 'is_sawant', False):
             if self._looks_like_cardboard_rack(frame, det['bbox']):
                 return False
 
         # Touching left/right image edge usually means shelf clutter
         # (skip for open-floor Sawant clips where the forklift fills the frame)
-        if not getattr(self, '_map_coco_vehicles', False):
+        if not getattr(self, 'is_sawant', False):
             if x1 <= 2 or x2 >= w - 3:
                 if cy > h * 0.35:
                     return False
@@ -1229,7 +1229,7 @@ class ComplianceMonitor:
             return False
 
         # Footprint should meet the aisle floor — floating mid-rack boxes are FPs
-        if not getattr(self, '_map_coco_vehicles', False):
+        if not getattr(self, 'is_sawant', False):
             if y2 < h * 0.52 and area > frame_area * 0.02:
                 return False
 

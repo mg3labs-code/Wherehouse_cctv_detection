@@ -15,7 +15,7 @@ DEFAULT_PROFILE = "warehouse_aisle"
 # Video Project 16 — production-line danger / product-touch UI only
 VIDEO_PROJECT_16 = "video_project_16"
 
-# GODOWN NO-3 — PPE only (no Safe Route / roadway overlays)
+# GODOWN NO-3 — forklift + PPE (no roadway overlays)
 GODOWN_NO3 = "godown_no3"
 
 # Legacy key kept for existing sessions / DB rows
@@ -101,11 +101,21 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "title": "Hypervis Warehouse Safety Monitor - AI Powered",
         "mode": "warehouse",
         "location": "GODOWN NO-3 - Aisle",
-        # Plain playback: PPE checks only — no left/right path overlays
+        # No roadway overlays; detect real aisle forklifts + PPE
         "enable_yellow_lines": False,
         "enable_forklift_lights": False,
-        "enable_forklift_detect": False,
+        "enable_forklift_detect": True,
         "enable_ppe_dashboard": True,
+        # COCO often labels the yellow forklift as truck/bus on GODOWN clips
+        "map_coco_vehicles": True,
+        "detect_yellow_forklift": True,
+        "forklift_vehicle_min_conf": 0.30,
+        "forklift_aisle_x_min": 0.20,
+        "forklift_aisle_x_max": 0.80,
+        # Sparse live AI: keep tracks alive for speed in video-time
+        "forklift_track_max_dist": 280,
+        "forklift_track_ttl": 15.0,
+        "forklift_ref_height_m": 2.2,
     },
 }
 
