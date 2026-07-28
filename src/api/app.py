@@ -189,6 +189,39 @@ def delete_video(name: str = Query(..., description="Basename of file inside dat
     return {"ok": True, "deleted": base, "items": _list_video_items()}
 
 
+def _resolve_video_file(name: str) -> str:
+    base = os.path.basename(name.strip().replace("\\", "/"))
+    if not base or base in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid name")
+    ext = os.path.splitext(base)[1].lower()
+    if ext not in _VIDEO_EXTS:
+        raise HTTPException(status_code=400, detail="Not a supported video file")
+    video_dir = os.path.realpath(_video_dir())
+    dest = os.path.realpath(os.path.join(video_dir, base))
+    if dest != video_dir and not dest.startswith(video_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(dest):
+        raise HTTPException(status_code=404, detail=f"Video not found: {base}")
+    return dest
+
+
+_VIDEO_MEDIA = {
+    ".mp4": "video/mp4",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+}
+
+
+@app.get("/api/videos/file")
+def get_video_file(name: str = Query(..., description="Basename of file inside data/videos")):
+    """Stream a stored CCTV clip for in-browser playback."""
+    dest = _resolve_video_file(name)
+    ext = os.path.splitext(dest)[1].lower()
+    media = _VIDEO_MEDIA.get(ext, "application/octet-stream")
+    return FileResponse(dest, media_type=media, filename=os.path.basename(dest))
+
+
 @app.get("/api/live/status")
 def live_status():
     return live_service.status()
