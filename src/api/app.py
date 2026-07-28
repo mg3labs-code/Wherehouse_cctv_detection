@@ -78,9 +78,17 @@ def get_violations(
     limit: int = Query(50, ge=1, le=500),
     worksite: Optional[str] = Query(None),
     event_type: Optional[str] = Query(None),
+    since_hours: Optional[int] = Query(None, ge=1, le=24 * 366),
 ):
     ws = None if not worksite or worksite in ("all", "--All Worksites--") else worksite
-    return {"items": store.list_events(limit=limit, worksite=ws, event_type=event_type)}
+    return {
+        "items": store.list_events(
+            limit=limit,
+            worksite=ws,
+            event_type=event_type,
+            since_hours=since_hours,
+        )
+    }
 
 
 _VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov"}
