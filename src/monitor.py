@@ -932,6 +932,28 @@ class ComplianceMonitor:
         out['bbox'] = np.array([x1, y1, x2, y2], dtype=float)
         return out
 
+    def _clamp_forklift_bbox(self, frame, det):
+        """Cap display box height — expanded COCO boxes must not span the whole aisle."""
+        max_h_frac = self.profile.get('forklift_max_height_frac')
+        if not max_h_frac:
+            return det
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = map(float, det['bbox'])
+        max_h = h * float(max_h_frac)
+        bh = y2 - y1
+        if bh <= max_h:
+            return det
+        cy = (y1 + y2) / 2.0
+        y1 = max(0.0, cy - max_h / 2.0)
+        y2 = min(float(h - 1), cy + max_h / 2.0)
+        out = dict(det)
+        out['bbox'] = np.array([x1, y1, x2, y2], dtype=float)
+        return out
+
+    def _normalize_forklift_det(self, frame, det):
+        det = self._expand_coco_forklift_bbox(frame, det)
+        return self._clamp_forklift_bbox(frame, det)
+
     def _detect_yellow_forklift_blob(self, frame):
         """
         Fallback for open-floor clips: industrial yellow body = forklift
@@ -1526,7 +1548,7 @@ class ComplianceMonitor:
 
         if self._enable_forklift_detect:
             forklifts = [
-                self._expand_coco_forklift_bbox(frame, d) for d in forklifts
+                self._normalize_forklift_det(frame, d) for d in forklifts
             ]
             if getattr(self.config, 'USE_AISLE_ZOOM', False):
                 forklifts.extend(self._detect_forklift_aisle_zoom(frame))
@@ -1661,6 +1683,8 @@ class ComplianceMonitor:
             'yellow_lines': [dict(ln) for ln in yellow_lines],
             'draw_zones': True,
         }
+        if self.profile.get('forklift_hide_speed_badge'):
+            self.last_overlay['stats']['hide_forklift_speed_badge'] = True
         return result_frame, violations
 
     def render_overlay_on(self, frame):
@@ -1705,13 +1729,43 @@ class ComplianceMonitor:
         return render_dashboard(
             frame,
             workers=ov.get('workers') or [],
-            forklifts=ov.get('forklifts') or [],
+            forklifts=self._sync_overlay_forklift_speed(ov.get('forklifts') or []),
             boxes=ov.get('boxes') or [],
-            stats=ov.get('stats') or {},
+            stats=self._overlay_stats(ov),
             alert=ov.get('alert'),
             draw_zones=bool(ov.get('draw_zones', True)),
             yellow_lines=ov.get('yellow_lines') or [],
         )
+
+    def _overlay_stats(self, ov):
+        stats = dict(ov.get('stats') or {})
+        ls = getattr(self, 'last_stats', None) or {}
+        for key in (
+            'forklift_speed_kmh', 'forklift_speed_limit_kmh', 'forklift_overspeed',
+            'forklifts', 'workers',
+        ):
+            if key in ls:
+                stats[key] = ls[key]
+        if self.profile.get('forklift_hide_speed_badge'):
+            stats['hide_forklift_speed_badge'] = True
+        return stats
+
+    def _sync_overlay_forklift_speed(self, forklifts):
+        if not forklifts:
+            return forklifts
+        ls = getattr(self, 'last_stats', None) or {}
+        spd = float(ls.get('forklift_speed_kmh') or 0.0)
+        limit = float(ls.get('forklift_speed_limit_kmh') or 8.0)
+        overspeed = bool(ls.get('forklift_overspeed', False))
+        synced = []
+        for fl in forklifts:
+            item = dict(fl)
+            if spd > 0 or item.get('speed_kmh') is None:
+                item['speed_kmh'] = round(spd, 1)
+            item['speed_limit_kmh'] = limit
+            item['overspeed'] = overspeed
+            synced.append(item)
+        return synced
 
     def _freeze_aisle_road_ways(self, lines, h, w):
         """Hard-freeze Aisle Road Way Left+Right (+ labels) so they never blink."""

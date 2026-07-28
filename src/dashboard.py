@@ -332,8 +332,8 @@ def render_dashboard(
             label = f"Forklift {float(spd):.1f} km/h"
             color = COLOR_FORKLIFT
         _draw_labeled_box(img, fl["bbox"], label, color, 3)
-        # Speed badge under the box
-        if spd is not None:
+        # Speed badge under the box (optional — label already shows km/h)
+        if spd is not None and not stats.get("hide_forklift_speed_badge"):
             x1, y1, x2, y2 = map(int, fl["bbox"])
             lim = float(fl.get("speed_limit_kmh") or stats.get("forklift_speed_limit_kmh") or 8.0)
             badge = f"{float(spd):.1f} / {lim:.0f} km/h"
