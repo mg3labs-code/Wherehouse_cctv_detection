@@ -21,6 +21,9 @@ GODOWN_NO3 = "godown_no3"
 # ONE clip only: ...25076934.mp4 — forklift + PPE, no left/right aisle lines
 GODOWN_NO3_25076934 = "godown_no3_forklift_clip"
 
+# ONE clip only: ...25016116.mp4 — no left/right aisle lines
+GODOWN_NO3_25016116 = "godown_no3_no_lines"
+
 # Legacy key kept for existing sessions / DB rows
 SAFE_ROUTE_NO3 = GODOWN_NO3
 
@@ -158,6 +161,35 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "forklift_track_ttl": 15.0,
         "forklift_ref_height_m": 2.2,
     },
+    # This file only — no Aisle Road Way Left/Right overlays
+    GODOWN_NO3_25016116: {
+        "name": GODOWN_NO3_25016116,
+        "title": "Hypervis Warehouse Safety Monitor - AI Powered",
+        "mode": "warehouse",
+        "location": "GODOWN NO-3 - Aisle",
+        "enable_yellow_lines": False,
+        "enable_forklift_lights": False,
+        "enable_forklift_detect": True,
+        "enable_ppe_dashboard": True,
+        "forklift_require_motion": True,
+        "forklift_motion_drift_px": 30,
+        "forklift_vehicle_confirm_conf": 0.26,
+        "forklift_floor_min_y_frac": 0.52,
+        "map_coco_vehicles": True,
+        "detect_yellow_forklift": True,
+        "forklift_vehicle_min_conf": 0.18,
+        "forklift_aisle_x_min": 0.15,
+        "forklift_aisle_x_max": 0.85,
+        "forklift_max_width_frac": 0.50,
+        "forklift_max_area_frac": 0.28,
+        "expand_coco_forklift_bbox": True,
+        "forklift_yellow_min_area_frac": 0.010,
+        "forklift_yellow_max_area_frac": 0.22,
+        "forklift_yellow_max_width_frac": 0.42,
+        "forklift_track_max_dist": 280,
+        "forklift_track_ttl": 15.0,
+        "forklift_ref_height_m": 2.2,
+    },
     # This file only — keep forklift/PPE; hide Aisle Road Way Left/Right overlays
     GODOWN_NO3_25076934: {
         "name": GODOWN_NO3_25076934,
@@ -197,8 +229,10 @@ PROFILES: Dict[str, Dict[str, Any]] = {
 _PROFILE_MATCHERS = (
     ("video project 16", VIDEO_PROJECT_16),
     ("videoproject16", VIDEO_PROJECT_16),
-    # Single NO-3 forklift clip — no aisle lines (must be before generic godown no-3)
+    # Single NO-3 clips — no aisle lines (must be before generic godown no-3)
     ("25076934", GODOWN_NO3_25076934),
+    ("25016116", GODOWN_NO3_25016116),
+    ("182656_250", GODOWN_NO3_25016116),
     # GODOWN NO-3 aisle cams — aisle lines + PPE + forklift when moving
     ("godown no-3", GODOWN_NO3),
     ("godown no 3", GODOWN_NO3),
