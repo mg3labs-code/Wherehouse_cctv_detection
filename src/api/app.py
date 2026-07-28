@@ -59,18 +59,29 @@ def get_worksites():
 
 
 @app.get("/api/analytics/summary")
-def analytics_summary(worksite: Optional[str] = Query(None)):
+def analytics_summary(
+    worksite: Optional[str] = Query(None),
+    day: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    category: Optional[str] = Query(None, description="all|assets|operators|alerts"),
+    scope: Optional[str] = Query(None, description="Secondary filter scope"),
+):
     ws = None if not worksite or worksite in ("all", "--All Worksites--") else worksite
-    return store.summary_kpis(ws)
+    return store.summary_kpis(ws, day=day, category=category, scope=scope)
 
 
 @app.get("/api/analytics/timeseries")
 def analytics_timeseries(
     days: int = Query(14, ge=7, le=90),
     worksite: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    scope: Optional[str] = Query(None),
 ):
     ws = None if not worksite or worksite in ("all", "--All Worksites--") else worksite
-    return {"series": store.timeseries(days=days, worksite=ws)}
+    return {
+        "series": store.timeseries(
+            days=days, worksite=ws, category=category, scope=scope
+        )
+    }
 
 
 @app.get("/api/violations")

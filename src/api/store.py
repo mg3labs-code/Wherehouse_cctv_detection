@@ -171,12 +171,71 @@ def _operators_seen(events: List[Dict[str, Any]]) -> int:
     return best
 
 
-def summary_kpis(worksite: Optional[str] = None) -> Dict[str, Any]:
-    clauses = ["COALESCE(source, '') != 'demo'"]
-    args: List[Any] = []
-    if worksite and worksite != "all":
+# Map UI filter scope → SQL constraints
+_PPE_TYPES = ("NO_HELMET", "NO_VEST", "NO_SAFETY_HARNESS")
+_FORKLIFT_TYPES = ("FORKLIFT_OVERSPEED",)
+
+
+def _apply_analytics_filters(
+    clauses: List[str],
+    args: List[Any],
+    *,
+    worksite: Optional[str] = None,
+    day: Optional[str] = None,
+    category: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> None:
+    if worksite and worksite not in ("all", "--All Worksites--"):
         clauses.append("worksite = ?")
         args.append(worksite)
+    if day:
+        clauses.append("substr(ts, 1, 10) = ?")
+        args.append(day)
+
+    cat = (category or "all").lower()
+    sc = (scope or "all").lower()
+
+    if cat == "assets":
+        if sc == "forklift":
+            placeholders = ",".join("?" for _ in _FORKLIFT_TYPES)
+            clauses.append(f"(event_type IN ({placeholders}) OR event_type LIKE 'FORKLIFT%')")
+            args.extend(_FORKLIFT_TYPES)
+        # cameras / all → no event-type filter (all monitored assets)
+    elif cat == "operators":
+        if sc in ("all", "ppe"):
+            placeholders = ",".join("?" for _ in _PPE_TYPES)
+            clauses.append(f"event_type IN ({placeholders})")
+            args.extend(_PPE_TYPES)
+        elif sc == "helmet":
+            clauses.append("event_type = ?")
+            args.append("NO_HELMET")
+        elif sc == "vest":
+            clauses.append("event_type = ?")
+            args.append("NO_VEST")
+    elif cat == "alerts":
+        if sc == "high":
+            clauses.append("severity = ?")
+            args.append("high")
+        elif sc == "medium":
+            clauses.append("severity = ?")
+            args.append("medium")
+        elif sc not in ("all", "", None):
+            clauses.append("event_type = ?")
+            args.append(sc)
+
+
+def summary_kpis(
+    worksite: Optional[str] = None,
+    *,
+    day: Optional[str] = None,
+    category: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> Dict[str, Any]:
+    clauses = ["COALESCE(source, '') != 'demo'"]
+    args: List[Any] = []
+    _apply_analytics_filters(
+        clauses, args, worksite=worksite, day=day, category=category, scope=scope
+    )
     where = " WHERE " + " AND ".join(clauses)
 
     with _db() as conn:
@@ -227,7 +286,6 @@ def summary_kpis(worksite: Optional[str] = None) -> Dict[str, Any]:
     return {
         "safety_score": score,
         "safety_label": label,
-        # Honest real-time KPIs (incidents_prevented kept as alias of total alerts)
         "incidents_prevented": total,
         "total_alerts": total,
         "asset_hours": _session_asset_hours(),
@@ -238,13 +296,60 @@ def summary_kpis(worksite: Optional[str] = None) -> Dict[str, Any]:
         "by_type": by_type,
         "online": True,
         "data_source": "live",
+        "filter_day": day,
+        "filter_category": category or "all",
+        "filter_scope": scope or "all",
     }
 
 
-def timeseries(days: int = 14, worksite: Optional[str] = None) -> List[Dict[str, Any]]:
+def _event_matches_filters(
+    e: Dict[str, Any],
+    *,
+    category: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> bool:
+    cat = (category or "all").lower()
+    sc = (scope or "all").lower()
+    et = str(e.get("event_type") or "")
+    sev = str(e.get("severity") or "").lower()
+
+    if cat == "assets":
+        if sc == "forklift":
+            return et.startswith("FORKLIFT") or et in _FORKLIFT_TYPES
+        return True
+    if cat == "operators":
+        if sc == "helmet":
+            return et == "NO_HELMET"
+        if sc == "vest":
+            return et == "NO_VEST"
+        return et in _PPE_TYPES
+    if cat == "alerts":
+        if sc == "high":
+            return sev == "high"
+        if sc == "medium":
+            return sev == "medium"
+        if sc in ("all", ""):
+            return True
+        want = sc.upper()
+        return et == want or et == sc
+    return True
+
+
+def timeseries(
+    days: int = 14,
+    worksite: Optional[str] = None,
+    *,
+    category: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Daily buckets for charts from real logged live-monitor events only."""
     events = list_events(limit=10000, worksite=worksite, since_hours=days * 24)
-    events = [e for e in events if (e.get("source") or "") != "demo"]
+    events = [
+        e
+        for e in events
+        if (e.get("source") or "") != "demo"
+        and _event_matches_filters(e, category=category, scope=scope)
+    ]
     buckets: Dict[str, Dict[str, int]] = {}
     today = datetime.now().date()
     for i in range(days):
@@ -265,7 +370,6 @@ def timeseries(days: int = 14, worksite: Optional[str] = None) -> List[Dict[str,
         if sev == "high":
             buckets[day]["high"] += 1
 
-    # Real-time series keys only (no demo "overrides" / "emergency stops" aliases)
     return [{"date": d, **buckets[d]} for d in sorted(buckets.keys())]
 
 
