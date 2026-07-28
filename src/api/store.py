@@ -143,22 +143,39 @@ def _count_video_assets() -> int:
     return len(set(files))
 
 
-def _session_asset_hours() -> float:
-    """Monitored hours from real live sessions only."""
+def _session_asset_hours(*, day: Optional[str] = None) -> float:
+    """Monitored hours from real live sessions (optionally one calendar day)."""
+    clauses = ["1=1"]
+    args: List[Any] = []
+    if day:
+        clauses.append(
+            """(
+              substr(started_at, 1, 10) = ?
+              OR substr(COALESCE(ended_at, started_at), 1, 10) = ?
+              OR (
+                substr(started_at, 1, 10) <= ?
+                AND substr(COALESCE(ended_at, CURRENT_TIMESTAMP), 1, 10) >= ?
+              )
+            )"""
+        )
+        args.extend([day, day, day, day])
+    where = " WHERE " + " AND ".join(clauses)
     with _db() as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT COALESCE(SUM(
                 (julianday(COALESCE(ended_at, CURRENT_TIMESTAMP)) - julianday(started_at)) * 24.0
             ), 0) AS hours
             FROM sessions
-            """
+            {where}
+            """,
+            args,
         ).fetchone()
-    return round(float(row["hours"] or 0), 1)
+    return round(max(float(row["hours"] or 0), 0.0), 1)
 
 
 def _operators_seen(events: List[Dict[str, Any]]) -> int:
-    """Distinct worker counts observed in live event payloads (0 if none)."""
+    """Max concurrent workers observed in filtered event payloads (0 if none)."""
     best = 0
     for e in events:
         payload = e.get("payload") or {}
@@ -174,6 +191,30 @@ def _operators_seen(events: List[Dict[str, Any]]) -> int:
 # Map UI filter scope → SQL constraints
 _PPE_TYPES = ("NO_HELMET", "NO_VEST", "NO_SAFETY_HARNESS")
 _FORKLIFT_TYPES = ("FORKLIFT_OVERSPEED",)
+
+
+def _filtered_asset_count(
+    *,
+    category: Optional[str],
+    scope: Optional[str],
+    total_alerts: int,
+    source_count: int,
+) -> int:
+    """Assets KPI must change with filters (not always total video files)."""
+    cat = (category or "all").lower()
+    sc = (scope or "all").lower()
+    videos = _count_video_assets()
+    if total_alerts == 0 and cat in ("assets", "operators", "alerts") and sc not in ("all", "cameras", ""):
+        return 0
+    if cat == "assets" and sc == "forklift":
+        return source_count
+    if cat == "assets" and sc == "cameras":
+        return videos
+    if cat == "operators":
+        return source_count
+    if cat == "alerts" and sc not in ("all", ""):
+        return source_count
+    return videos
 
 
 def _apply_analytics_filters(
@@ -193,14 +234,12 @@ def _apply_analytics_filters(
         args.append(day)
 
     cat = (category or "all").lower()
-    sc = (scope or "all").lower()
+    sc_raw = (scope or "all").strip()
+    sc = sc_raw.lower()
 
     if cat == "assets":
         if sc == "forklift":
-            placeholders = ",".join("?" for _ in _FORKLIFT_TYPES)
-            clauses.append(f"(event_type IN ({placeholders}) OR event_type LIKE 'FORKLIFT%')")
-            args.extend(_FORKLIFT_TYPES)
-        # cameras / all → no event-type filter (all monitored assets)
+            clauses.append("(event_type IN ('FORKLIFT_OVERSPEED') OR event_type LIKE 'FORKLIFT%')")
     elif cat == "operators":
         if sc in ("all", "ppe"):
             placeholders = ",".join("?" for _ in _PPE_TYPES)
@@ -219,9 +258,10 @@ def _apply_analytics_filters(
         elif sc == "medium":
             clauses.append("severity = ?")
             args.append("medium")
-        elif sc not in ("all", "", None):
+        elif sc not in ("all", ""):
+            # Keep UI case: NO_HELMET / FORKLIFT_OVERSPEED
             clauses.append("event_type = ?")
-            args.append(sc)
+            args.append(sc_raw)
 
 
 def summary_kpis(
@@ -257,9 +297,15 @@ def summary_kpis(
             args,
         ).fetchall()
         worker_rows = conn.execute(
-            f"SELECT payload FROM events{where} ORDER BY id DESC LIMIT 200",
+            f"SELECT payload, source FROM events{where} ORDER BY id DESC LIMIT 500",
             args,
         ).fetchall()
+        source_count = int(
+            conn.execute(
+                f"SELECT COUNT(DISTINCT source) AS c FROM events{where} AND COALESCE(source,'') != ''",
+                args,
+            ).fetchone()["c"]
+        )
 
     by_type: Dict[str, int] = {
         (r["event_type"] or "UNKNOWN"): int(r["c"]) for r in type_rows
@@ -283,14 +329,26 @@ def summary_kpis(
             else ("Compliant" if score >= 70 else "Needs Attention")
         )
 
+    assets = _filtered_asset_count(
+        category=category,
+        scope=scope,
+        total_alerts=total,
+        source_count=source_count,
+    )
+    # Hours: day-scoped; zero when the active filter has no matching alerts
+    hours = _session_asset_hours(day=day)
+    if total == 0 and (category or "all") not in ("all", None) and (scope or "all") not in ("all", "cameras", ""):
+        hours = 0.0
+    operators = _operators_seen(recent) if total else 0
+
     return {
         "safety_score": score,
         "safety_label": label,
         "incidents_prevented": total,
         "total_alerts": total,
-        "asset_hours": _session_asset_hours(),
-        "assets": _count_video_assets(),
-        "operators": _operators_seen(recent),
+        "asset_hours": hours,
+        "assets": assets,
+        "operators": operators,
         "high_severity": danger,
         "medium_severity": warn,
         "by_type": by_type,
@@ -309,7 +367,8 @@ def _event_matches_filters(
     scope: Optional[str] = None,
 ) -> bool:
     cat = (category or "all").lower()
-    sc = (scope or "all").lower()
+    sc_raw = (scope or "all").strip()
+    sc = sc_raw.lower()
     et = str(e.get("event_type") or "")
     sev = str(e.get("severity") or "").lower()
 
@@ -330,8 +389,7 @@ def _event_matches_filters(
             return sev == "medium"
         if sc in ("all", ""):
             return True
-        want = sc.upper()
-        return et == want or et == sc
+        return et == sc_raw or et == sc.upper() or et == sc
     return True
 
 
