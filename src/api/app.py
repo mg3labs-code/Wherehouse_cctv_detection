@@ -86,7 +86,7 @@ def analytics_timeseries(
 
 @app.get("/api/violations")
 def get_violations(
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=5000),
     worksite: Optional[str] = Query(None),
     event_type: Optional[str] = Query(None),
     since_hours: Optional[int] = Query(None, ge=1, le=24 * 366),
